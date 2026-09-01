@@ -4,12 +4,10 @@ export const content = {
     title: "Développeur web",
     location: "Limoges et périphérie",
   },
-  accueil: {
-    bootLines: [
+  preloader: {
+    lines: [
       "INITIALISATION DU TERMINAL... OK",
       "CHARGEMENT DU PROFIL : YOAN MARCHAL... OK",
-      "PHP · MYSQL · HTML5 · CSS3 · JS... PRÊTS",
-      "SÉLECTIONNEZ UN ONGLET POUR CONTINUER_",
     ],
   },
   profil: {

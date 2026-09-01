@@ -1,5 +1,4 @@
 export const ROUTES = [
-  "accueil",
   "profil",
   "competences",
   "experience",
@@ -7,7 +6,7 @@ export const ROUTES = [
   "contact",
 ];
 
-const DEFAULT_ROUTE = "accueil";
+const DEFAULT_ROUTE = "profil";
 
 export function getCurrentRoute() {
   const hash = location.hash.replace("#", "");

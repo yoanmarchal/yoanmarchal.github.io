@@ -121,15 +121,62 @@ body {
   height: 100%;
 }
 
+/* --- Boot preloader --- */
+
+.screen-inner.is-centering {
+  justify-content: center;
+  align-items: center;
+}
+
+.screen-inner.is-centering .hero {
+  padding-bottom: 0;
+}
+
+.preloader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.preloader .boot-line {
+  margin: 0.3em 0;
+}
+
 /* --- Hero --- */
 
 .hero {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 1.2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
   padding-bottom: 1rem;
   flex: none;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+
+.hero.hero--enter {
+  opacity: 0;
+}
+
+/* border is a pseudo-element (not a real border) so it can be drawn in
+   left-to-right on its own timing, independent of the hero's fade-in */
+.hero::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.15);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.6s ease;
+}
+
+.hero.hero--border-in::after {
+  transform: scaleX(1);
 }
 
 .hero .logo {
@@ -301,10 +348,14 @@ article h3 {
   /* fixed box regardless of which glyph is currently showing - the
      katakana glyphs in the scramble pool pull in a CJK fallback font
      with different line metrics than the Latin monospace stack, which
-     made the line height "vibrate" as characters cycled */
+     made the line height "vibrate" as characters cycled. The fallback
+     glyphs are also often double-width, so the box width is pinned to
+     1ch too - otherwise a centered line's total width jitters every
+     frame and the whole line visibly shakes side to side. */
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 1ch;
   height: 1.35em;
   line-height: 1.35em;
   vertical-align: top;

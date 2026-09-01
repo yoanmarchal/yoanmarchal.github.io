@@ -1,7 +1,6 @@
 import { ROUTES } from "../router.js";
 
 const LABELS = {
-  accueil: "ACCUEIL",
   profil: "PROFIL",
   competences: "COMPÉTENCES",
   experience: "EXPÉRIENCE",
