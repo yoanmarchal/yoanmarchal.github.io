@@ -1,0 +1,323 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: radial-gradient(ellipse at center, #1a1a1a 0%, #0d0d0d 70%, #050505 100%);
+  color: #f2f2f2;
+  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, "Courier New", monospace;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+#app {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.crt-screen {
+  /* the glass: same bulging-tube curve (#crtClip) is applied here AND to
+     .screen-inner below, so the text's readable area follows the same
+     curvature as the screen itself instead of just sitting in a rectangle
+     that the curve happens to clip. Glow uses filter:drop-shadow (follows
+     the clipped silhouette) rather than box-shadow (would render as a
+     rectangle and get cut off by the clip-path). */
+  position: relative;
+  width: min(98vw, 1700px);
+  height: min(95vh, 980px);
+  margin: 1.5vh auto;
+  background: #0a0a0a;
+  clip-path: url(#crtClip);
+  filter:
+    drop-shadow(0 0 50px rgba(255, 255, 255, 0.1))
+    drop-shadow(0 20px 70px rgba(0, 0, 0, 0.6));
+  box-shadow:
+    inset 0 0 90px rgba(0, 0, 0, 0.9),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+.screen-inner {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  clip-path: url(#crtClip);
+  padding: clamp(2.4rem, 6vh, 4.2rem) clamp(3rem, 7vw, 5.5rem);
+  overflow: auto;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.35);
+  /* per-character scramble spans use a non-breaking space so it can't
+     collapse away, which also stops the browser wrapping there - let it
+     wrap anywhere instead so long paragraphs don't overflow */
+  overflow-wrap: anywhere;
+}
+
+/* --- CRT overlay effects --- */
+
+.crt-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0) 0px,
+      rgba(0, 0, 0, 0.35) 1px,
+      rgba(0, 0, 0, 0) 3px
+    ),
+    /* wider, corner-hugging vignette sells the barrel curvature of the glass */
+    radial-gradient(ellipse 75% 70% at center, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.55) 78%, rgba(0, 0, 0, 0.9) 100%);
+  mix-blend-mode: multiply;
+}
+
+.crt-glass {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  background: linear-gradient(
+    118deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.02) 12%,
+    transparent 30%
+  );
+}
+
+.crt-flicker {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.025);
+  animation: flicker 6s infinite;
+}
+
+@keyframes flicker {
+  0%, 96%, 100% { opacity: 1; }
+  97% { opacity: 0.6; }
+  98% { opacity: 1; }
+  99% { opacity: 0.75; }
+}
+
+.transition-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+}
+
+/* --- Hero --- */
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 1rem;
+  flex: none;
+}
+
+.hero .logo {
+  width: 56px;
+  height: auto;
+  filter: grayscale(1) brightness(0) invert(1);
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.08em;
+}
+
+.tagline {
+  margin: 0.3rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+/* --- Tabs --- */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  flex: none;
+}
+
+.tab {
+  background: none;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  padding: 0.3rem 0.2rem;
+  font-size: 0.85rem;
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.tab:hover {
+  opacity: 0.85;
+}
+
+.tab:focus-visible {
+  outline: 1px solid #f2f2f2;
+  outline-offset: 2px;
+}
+
+.tab.is-active {
+  opacity: 1;
+  color: #ffffff;
+}
+
+/* --- Panels --- */
+
+.panels {
+  flex: 1;
+  min-height: 0;
+}
+
+.panel {
+  border-top: 1px dashed rgba(255, 255, 255, 0.15);
+  padding-top: 1rem;
+}
+
+.panel h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.1em;
+}
+
+.panel h2:focus {
+  outline: none;
+}
+
+.boot-line {
+  margin: 0.4em 0;
+  font-size: 0.9rem;
+}
+
+.stat-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.stat-bars li {
+  display: grid;
+  grid-template-columns: 6rem 1fr;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 0.85rem;
+}
+
+.stat-bar {
+  position: relative;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.stat-bar.is-visible {
+  opacity: 1;
+}
+
+.stat-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 0;
+  background: #f2f2f2;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+  transition: width 0.5s ease;
+}
+
+.stat-bar.is-filled::after {
+  width: var(--level);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-bar,
+  .stat-bar::after {
+    transition: none;
+  }
+}
+
+article {
+  margin-bottom: 1rem;
+}
+
+article h3 {
+  margin: 0 0 0.2em;
+  font-size: 1rem;
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.placeholder-note {
+  color: #ffffff;
+  border: 1px dashed currentColor;
+  border-color: rgba(255, 255, 255, 0.35);
+  opacity: 0.9;
+  padding: 0.75em 1em;
+  display: inline-block;
+}
+
+/* --- Scramble/decrypt text reveal --- */
+
+.reveal-pending {
+  /* collapsed, not display:none, so it stays focusable for the a11y
+     focus-on-heading handoff even before its animation has started */
+  height: 0 !important;
+  margin: 0 !important;
+  overflow: hidden;
+}
+
+.scramble-char {
+  /* fixed box regardless of which glyph is currently showing - the
+     katakana glyphs in the scramble pool pull in a CJK fallback font
+     with different line metrics than the Latin monospace stack, which
+     made the line height "vibrate" as characters cycled */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.35em;
+  line-height: 1.35em;
+  vertical-align: top;
+  overflow: hidden;
+}
+
+.scramble-char.is-scrambling {
+  color: #9a9a9a;
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-flicker {
+    animation: none;
+  }
+}
