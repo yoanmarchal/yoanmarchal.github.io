@@ -214,6 +214,14 @@ body {
   width: 56px;
   height: auto;
   filter: grayscale(1) brightness(0) invert(1);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.hero .logo.logo--enter {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .hero h1 {
@@ -226,6 +234,17 @@ body {
   margin: 0.3rem 0 0;
   font-size: 0.85rem;
   opacity: 0.85;
+}
+
+.tagline-sep {
+  display: inline-block;
+  margin: 0 0.4em;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.tagline-sep.is-visible {
+  opacity: 0.6;
 }
 
 /* --- Tabs --- */
@@ -317,6 +336,16 @@ article h3 {
   margin: 0;
   font-size: 0.8rem;
   opacity: 0.75;
+}
+
+.contact-email a {
+  color: inherit;
+  text-decoration-color: rgba(255, 255, 255, 0.4);
+}
+
+.contact-email a:hover,
+.contact-email a:focus-visible {
+  text-decoration-color: currentColor;
 }
 
 .placeholder-note {

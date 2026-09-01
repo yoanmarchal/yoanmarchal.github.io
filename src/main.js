@@ -71,14 +71,29 @@ function buildShell() {
 function buildHero() {
   const hero = document.createElement("header");
   hero.className = "hero";
-  hero.innerHTML = `
-    <img class="logo" src="${import.meta.env.BASE_URL}images/yoanmarchal-logo.png" alt="" />
-    <div>
-      <h1>${content.hero.name.toUpperCase()}</h1>
-      <p class="tagline">${content.hero.title.toUpperCase()} // ${content.hero.location.toUpperCase()}</p>
-    </div>
-  `;
-  return hero;
+
+  const logo = document.createElement("img");
+  logo.className = "logo";
+  logo.src = `${import.meta.env.BASE_URL}images/yoanmarchal-logo.png`;
+  logo.alt = "";
+
+  const name = document.createElement("h1");
+  const job = document.createElement("span");
+  const sep = document.createElement("span");
+  sep.className = "tagline-sep";
+  sep.textContent = "//";
+  const location = document.createElement("span");
+
+  const meta = document.createElement("p");
+  meta.className = "tagline";
+  meta.append(job, sep, location);
+
+  const textWrap = document.createElement("div");
+  textWrap.append(name, meta);
+
+  hero.append(logo, textWrap);
+
+  return { hero, logo, name, job, location };
 }
 
 async function runPreloader(inner) {
@@ -105,21 +120,39 @@ async function runPreloader(inner) {
   preloader.remove();
 }
 
-// Reveals the hero centered, then FLIP-animates it up to its normal
-// in-flow position at the top of the screen once the nav/panels are
-// about to appear alongside it.
-async function revealHero(inner, hero) {
+// Reveals the hero centered - logo, then name, job title and location one
+// at a time - then FLIP-animates it up to its normal in-flow position at
+// the top of the screen once the nav/panels are about to appear alongside
+// it.
+async function revealHero(inner, heroRefs) {
+  const { hero, logo, name, job, location } = heroRefs;
   inner.appendChild(hero);
 
   if (prefersReducedMotion()) {
+    name.textContent = content.hero.name.toUpperCase();
+    job.textContent = content.hero.title.toUpperCase();
+    location.textContent = content.hero.location.toUpperCase();
     inner.classList.remove("is-centering");
     return;
   }
 
-  hero.classList.add("hero--enter");
+  logo.classList.add("logo--enter");
   await wait(30);
-  hero.classList.remove("hero--enter");
-  await wait(1800);
+  logo.classList.remove("logo--enter");
+  await wait(300);
+
+  await scrambleReveal(name, content.hero.name.toUpperCase()).promise;
+  await wait(120);
+
+  await scrambleReveal(job, content.hero.title.toUpperCase()).promise;
+  await wait(120);
+
+  const sep = hero.querySelector(".tagline-sep");
+  sep.classList.add("is-visible");
+  await wait(150);
+
+  await scrambleReveal(location, content.hero.location.toUpperCase()).promise;
+  await wait(600);
 
   const firstRect = hero.getBoundingClientRect();
   inner.classList.remove("is-centering");
@@ -246,9 +279,9 @@ function renderPanel(route, panelsWrap) {
 async function boot(inner, panelsWrap) {
   await runPreloader(inner);
 
-  const hero = buildHero();
-  await revealHero(inner, hero);
-  await revealHeroBorder(hero);
+  const heroRefs = buildHero();
+  await revealHero(inner, heroRefs);
+  await revealHeroBorder(heroRefs.hero);
 
   const currentRoute = getCurrentRoute();
   const nav = renderNav(currentRoute, (route) => navigateTo(route));

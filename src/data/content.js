@@ -1,7 +1,7 @@
 export const content = {
   hero: {
     name: "Yoan Marchal",
-    title: "Développeur web",
+    title: "Développeur",
     location: "Limoges et périphérie",
   },
   preloader: {
@@ -48,11 +48,15 @@ export const content = {
     },
   ],
   projets: {
-    placeholder: true,
-    note: "Section à compléter — projets à venir.",
+    placeholder: false,
+    note: "Projets réalisés dans un cadre professionnel, soumis à confidentialité. Liste détaillée disponible sur demande.",
   },
   contact: {
-    placeholder: true,
-    note: "Coordonnées à confirmer avant publication.",
+    placeholder: false,
+    address: "87000 Limoges",
+    email: {
+      user: "marchalyoan",
+      domain: "gmail.com",
+    },
   },
 };

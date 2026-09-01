@@ -26,11 +26,15 @@ export function scrambleReveal(el, text, options = {}) {
     options.charDelay ?? Math.max(4, Math.min(24, 900 / Math.max(chars.length, 1)));
   const scrambleDuration = options.scrambleDuration ?? 200;
 
-  const spans = chars.map((ch) => {
+  const spans = chars.map(() => {
     const span = document.createElement("span");
-    // a plain " " inside a lone inline box can get whitespace-collapsed
-    // away by the browser - NBSP always keeps its width
-    span.textContent = ch === " " ? NBSP : ch;
+    // starts as NBSP regardless of the real character - the first
+    // requestAnimationFrame callback below is what actually decides
+    // each char's displayed state (hidden/scrambling/settled), but the
+    // browser can paint once before that frame runs. Pre-filling with
+    // the real character here made the full, unscrambled text flash
+    // for a frame before the reveal took over.
+    span.textContent = NBSP;
     span.className = "scramble-char";
     return span;
   });
