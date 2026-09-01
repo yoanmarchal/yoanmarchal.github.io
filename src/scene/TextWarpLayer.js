@@ -7,7 +7,7 @@ const STRENGTH = 0.12;
 // Mirrors the fragment shader's displacement math: for an output pixel at
 // (centerX, centerY), the shader samples the source texture at
 // `uv + centered * r2 * strength`. Used to keep the real, invisible,
-// interactive elements (nav buttons) positioned under their own warped
+// interactive elements (nav buttons, links) positioned under their own warped
 // visual text, so hover/click land where the text actually appears.
 function computeWarpOffsetPx(centerX, centerY, originWidth, originHeight, strength) {
   const cx = centerX / originWidth - 0.5;
@@ -175,7 +175,7 @@ export class TextWarpLayer {
       ctx.globalAlpha = opacity;
       drawBorder(ctx, style, rect.left - originRect.left, rect.top - originRect.top, rect.width, rect.height);
 
-      if (el.tagName === "BUTTON") {
+      if (el.tagName === "BUTTON" || el.tagName === "A") {
         // keep the real (invisible) interactive hit-box aligned with
         // where the shader visually displaces this element's mirrored
         // text, so hover/click land where the text actually appears.

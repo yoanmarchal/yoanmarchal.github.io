@@ -2,6 +2,13 @@
   box-sizing: border-box;
 }
 
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid #f2f2f2;
+  outline-offset: 3px;
+  box-shadow: 0 0 6px rgba(242, 242, 242, 0.6);
+}
+
 html,
 body {
   margin: 0;
@@ -56,7 +63,11 @@ body {
   gap: 1.4rem;
   clip-path: url(#crtClip);
   padding: clamp(2.4rem, 6vh, 4.2rem) clamp(3rem, 7vw, 5.5rem);
-  overflow: auto;
+  /* horizontal always hidden - overflow:auto would compute scrollable
+     width from the hero's transformed (pre-FLIP) position while it's
+     mid-transition, briefly showing a horizontal scrollbar */
+  overflow-x: hidden;
+  overflow-y: auto;
   text-shadow: 0 0 4px rgba(255, 255, 255, 0.35);
   /* the visible text is a warped WebGL stand-in (see TextWarpLayer) -
      the real DOM text underneath is invisible, so a native selection
@@ -268,13 +279,9 @@ body {
   transition: opacity 0.15s ease;
 }
 
-.tab:hover {
-  opacity: 0.85;
-}
-
+.tab:hover,
 .tab:focus-visible {
-  outline: 1px solid #f2f2f2;
-  outline-offset: 2px;
+  opacity: 0.85;
 }
 
 .tab.is-active {
