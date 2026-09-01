@@ -154,34 +154,74 @@ async function revealHeroBorder(hero) {
   await wait(650);
 }
 
-// Reveals the nav tabs one at a time rather than all at once.
-async function revealNavTabs(nav) {
-  const tabs = [...nav.querySelectorAll(".tab")];
-  if (prefersReducedMotion()) return;
+// Reveals `elements` one at a time (fade + slide up) rather than all at
+// once - shared by the nav tabs and the competences stack tags.
+async function staggerFadeReveal(elements) {
+  if (prefersReducedMotion() || elements.length === 0) return;
 
-  tabs.forEach((tab) => {
-    tab.style.transition = "none";
-    tab.style.opacity = "0";
-    tab.style.transform = "translateY(6px)";
+  elements.forEach((el) => {
+    el.style.transition = "none";
+    el.style.opacity = "0";
+    el.style.transform = "translateY(6px)";
   });
 
   await new Promise((resolve) => requestAnimationFrame(resolve));
 
-  tabs.forEach((tab) => {
-    tab.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+  elements.forEach((el) => {
+    el.style.transition = "opacity 0.3s ease, transform 0.3s ease";
   });
 
-  for (const tab of tabs) {
-    tab.style.opacity = "";
-    tab.style.transform = "";
+  for (const el of elements) {
+    el.style.opacity = "";
+    el.style.transform = "";
     await wait(110);
   }
 
   await wait(200);
 
-  tabs.forEach((tab) => {
-    tab.style.transition = "";
+  elements.forEach((el) => {
+    el.style.transition = "";
   });
+}
+
+// Reveals the nav tabs one at a time rather than all at once.
+async function revealNavTabs(nav) {
+  await staggerFadeReveal([...nav.querySelectorAll(".tab")]);
+}
+
+// Scrambles the COMPÉTENCES heading in, then reveals the stack tags one
+// at a time with the same entrance as the nav tabs.
+function revealCompetences(section) {
+  if (prefersReducedMotion()) return () => {};
+
+  const heading = section.querySelector("h2");
+  const tags = [...section.querySelectorAll(".stack-tag")];
+  let cancelled = false;
+  let cancelHeading = null;
+
+  // hidden immediately so tags don't flash at full opacity while the
+  // heading is still scrambling in
+  tags.forEach((tag) => {
+    tag.style.transition = "none";
+    tag.style.opacity = "0";
+  });
+
+  (async () => {
+    if (heading) {
+      const { cancel, promise } = scrambleReveal(heading, heading.textContent);
+      cancelHeading = cancel;
+      await promise;
+      if (cancelled) return;
+      await wait(150);
+    }
+    if (cancelled) return;
+    await staggerFadeReveal(tags);
+  })();
+
+  return () => {
+    cancelled = true;
+    if (cancelHeading) cancelHeading();
+  };
 }
 
 let cancelReveal = null;
@@ -194,7 +234,7 @@ function renderPanel(route, panelsWrap) {
   const section = renderSection();
   panelsWrap.appendChild(section);
 
-  cancelReveal = animateReveal(section);
+  cancelReveal = route === "competences" ? revealCompetences(section) : animateReveal(section);
 
   const heading = section.querySelector("h2");
   if (heading) heading.focus();
