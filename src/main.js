@@ -8,6 +8,7 @@ import { renderProjets } from "./ui/sections/Projets.js";
 import { renderContact } from "./ui/sections/Contact.js";
 import { getCurrentRoute, navigateTo, onRouteChange } from "./router.js";
 import { SectionTransition } from "./scene/SectionTransition.js";
+import { TextWarpLayer } from "./scene/TextWarpLayer.js";
 import { animateReveal, scrambleReveal } from "./ui/scrambleReveal.js";
 
 const SECTION_RENDERERS = {
@@ -48,14 +49,21 @@ function buildShell() {
   transitionCanvas.className = "transition-canvas";
   transitionCanvas.setAttribute("aria-hidden", "true");
 
+  const textWarpCanvas = document.createElement("canvas");
+  textWarpCanvas.className = "text-warp-canvas";
+  textWarpCanvas.setAttribute("aria-hidden", "true");
+
   const inner = document.createElement("div");
   inner.className = "screen-inner is-centering";
 
   const panelsWrap = document.createElement("div");
   panelsWrap.className = "panels";
 
-  crtScreen.append(crtOverlay, transitionCanvas, crtFlicker, crtGlass, inner);
+  crtScreen.append(crtOverlay, transitionCanvas, textWarpCanvas, crtFlicker, crtGlass, inner);
   app.append(crtScreen);
+
+  const textWarp = new TextWarpLayer(textWarpCanvas, inner);
+  if (textWarp.supported) inner.classList.add("crt-warp-active");
 
   return { inner, panelsWrap, transitionCanvas };
 }
