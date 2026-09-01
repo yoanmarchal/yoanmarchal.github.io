@@ -141,14 +141,24 @@ body {
   z-index: 6;
   pointer-events: none;
   background: rgba(255, 255, 255, 0.025);
-  animation: flicker 6s infinite;
+  /* power-on flicker, once - not a repeating tic. Runs on mount, so it
+     plays right as the screen appears, before the preloader text starts. */
+  animation: flicker-startup 1.6s ease-out forwards;
 }
 
-@keyframes flicker {
-  0%, 96%, 100% { opacity: 1; }
-  97% { opacity: 0.6; }
-  98% { opacity: 1; }
-  99% { opacity: 0.75; }
+@keyframes flicker-startup {
+  0% { opacity: 0; }
+  4% { opacity: 0.85; }
+  8% { opacity: 0.15; }
+  13% { opacity: 1; }
+  19% { opacity: 0.35; }
+  27% { opacity: 0.9; }
+  36% { opacity: 0.55; }
+  46% { opacity: 1; }
+  58% { opacity: 0.75; }
+  72% { opacity: 1; }
+  85% { opacity: 0.9; }
+  100% { opacity: 1; }
 }
 
 .transition-canvas {
