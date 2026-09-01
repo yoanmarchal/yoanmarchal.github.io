@@ -156,36 +156,63 @@ export class TextWarpLayer {
     ctx.clearRect(0, 0, this._lastWidth, this._lastHeight);
     ctx.textBaseline = "middle";
 
+    // Hit-box alignment runs as its own pass over the real interactive
+    // elements, keyed by the element itself - not by collectLeaves below,
+    // whose leaves are per-character <span>s once scrambleReveal has
+    // wrapped a button/link's text (see e.g. the contact-email link).
+    // Using the link's own rect here (rather than one of its char spans)
+    // keeps the compensation correct regardless of that internal markup.
+    for (const interactiveEl of this.sourceEl.querySelectorAll("button, a")) {
+      const iRect = interactiveEl.getBoundingClientRect();
+      if (iRect.width <= 0 || iRect.height <= 0) continue;
+
+      const prevOffset = this._hitOffsets.get(interactiveEl);
+      const trueRect = prevOffset
+        ? new DOMRect(iRect.x - prevOffset.dx, iRect.y - prevOffset.dy, iRect.width, iRect.height)
+        : iRect;
+
+      const centerX = trueRect.left - originRect.left + trueRect.width / 2;
+      const centerY = trueRect.top - originRect.top + trueRect.height / 2;
+      const shaderOffset = computeWarpOffsetPx(centerX, centerY, this._lastWidth, this._lastHeight, STRENGTH);
+      const hitOffset = { dx: -shaderOffset.dx, dy: -shaderOffset.dy };
+      interactiveEl.style.transform = `translate(${hitOffset.dx}px, ${hitOffset.dy}px)`;
+      this._hitOffsets.set(interactiveEl, hitOffset);
+    }
+
+    const underlinedThisFrame = new Set();
+
     for (const el of collectLeaves(this.sourceEl)) {
       let rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) continue;
 
-      // rect may already include last frame's hit-alignment transform
-      // (see below) - subtract it back out so drawing uses the element's
-      // true, untransformed position.
-      const prevHitOffset = this._hitOffsets.get(el);
-      if (prevHitOffset) {
-        rect = new DOMRect(rect.x - prevHitOffset.dx, rect.y - prevHitOffset.dy, rect.width, rect.height);
+      // `el` may itself be a button/link, or (once scrambleReveal has
+      // wrapped its text) one of its per-character descendant spans -
+      // closest() finds the real interactive element either way.
+      const interactiveAncestor = el.closest("a, button");
+
+      // rect may already include the hit-alignment transform applied
+      // above (directly, or inherited from that ancestor) - subtract it
+      // back out so drawing uses the element's true, untransformed
+      // position.
+      const hitOffset = interactiveAncestor ? this._hitOffsets.get(interactiveAncestor) : null;
+      if (hitOffset) {
+        rect = new DOMRect(rect.x - hitOffset.dx, rect.y - hitOffset.dy, rect.width, rect.height);
       }
 
       const style = getComputedStyle(el);
       const opacity = parseFloat(style.opacity);
       if (!opacity) continue;
 
+      // drawn into the mirror (not as a real CSS outline/shadow on `el`)
+      // so it gets warped by the shader in lockstep with the text instead
+      // of sitting at a rigid position that drifts from the curved glyphs.
+      const isFocused =
+        interactiveAncestor !== null &&
+        interactiveAncestor === document.activeElement &&
+        interactiveAncestor.matches(":focus-visible");
+
       ctx.globalAlpha = opacity;
       drawBorder(ctx, style, rect.left - originRect.left, rect.top - originRect.top, rect.width, rect.height);
-
-      if (el.tagName === "BUTTON" || el.tagName === "A") {
-        // keep the real (invisible) interactive hit-box aligned with
-        // where the shader visually displaces this element's mirrored
-        // text, so hover/click land where the text actually appears.
-        const centerX = rect.left - originRect.left + rect.width / 2;
-        const centerY = rect.top - originRect.top + rect.height / 2;
-        const shaderOffset = computeWarpOffsetPx(centerX, centerY, this._lastWidth, this._lastHeight, STRENGTH);
-        const hitOffset = { dx: -shaderOffset.dx, dy: -shaderOffset.dy };
-        el.style.transform = `translate(${hitOffset.dx}px, ${hitOffset.dy}px)`;
-        this._hitOffsets.set(el, hitOffset);
-      }
 
       if (el.tagName === "IMG") {
         ctx.globalAlpha = opacity;
@@ -203,9 +230,13 @@ export class TextWarpLayer {
       if (!Number.isFinite(lineHeight)) lineHeight = fontSize * 1.2;
 
       ctx.font = `${style.fontWeight} ${fontSize}px ${style.fontFamily}`;
-      ctx.fillStyle = style.color;
+      ctx.fillStyle = isFocused ? "#ffffff" : style.color;
       ctx.globalAlpha = opacity;
       if ("letterSpacing" in ctx) ctx.letterSpacing = style.letterSpacing;
+      if (isFocused) {
+        ctx.shadowColor = "rgba(242, 242, 242, 0.9)";
+        ctx.shadowBlur = 6;
+      }
 
       const align = style.textAlign === "center" || style.textAlign === "right" ? style.textAlign : "left";
       ctx.textAlign = align;
@@ -214,18 +245,39 @@ export class TextWarpLayer {
       const localTop = rect.top - originRect.top;
 
       const isWrapped = rect.height > lineHeight * 1.4;
-      if (!isWrapped) {
+      if (isWrapped) {
+        const lines = wrapLine(ctx, el.textContent, rect.width);
+        lines.forEach((line, i) => {
+          ctx.fillText(line, x, localTop + lineHeight / 2 + i * lineHeight);
+        });
+      } else {
         ctx.fillText(el.textContent, x, localTop + rect.height / 2);
-        continue;
       }
 
-      const lines = wrapLine(ctx, el.textContent, rect.width);
-      lines.forEach((line, i) => {
-        ctx.fillText(line, x, localTop + lineHeight / 2 + i * lineHeight);
-      });
+      ctx.shadowBlur = 0;
+
+      // drawn once per link/button (not once per leaf - a scrambled link
+      // has one leaf per character) and sized from the ancestor's own
+      // rect, so a multi-character label gets a single underline spanning
+      // its full width instead of one sliver per glyph.
+      if (isFocused && !underlinedThisFrame.has(interactiveAncestor)) {
+        underlinedThisFrame.add(interactiveAncestor);
+        const aRect = interactiveAncestor.getBoundingClientRect();
+        const trueARect = hitOffset
+          ? new DOMRect(aRect.x - hitOffset.dx, aRect.y - hitOffset.dy, aRect.width, aRect.height)
+          : aRect;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const underlineY = trueARect.top - originRect.top + trueARect.height + 2;
+        ctx.moveTo(trueARect.left - originRect.left, underlineY);
+        ctx.lineTo(trueARect.left - originRect.left + trueARect.width, underlineY);
+        ctx.stroke();
+      }
     }
 
     ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
     this.texture.needsUpdate = true;
   }
 

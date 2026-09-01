@@ -4,9 +4,19 @@
 
 a:focus-visible,
 button:focus-visible {
-  outline: 2px solid #f2f2f2;
-  outline-offset: 3px;
-  box-shadow: 0 0 6px rgba(242, 242, 242, 0.6);
+  outline: none;
+  color: #ffffff;
+  text-shadow: 0 0 6px rgba(242, 242, 242, 0.85);
+  box-shadow: 0 1px 0 0 rgba(242, 242, 242, 0.85);
+}
+
+/* forced-colors (e.g. Windows High Contrast) ignores box-shadow/text-shadow,
+   so keep a real outline as a fallback there */
+@media (forced-colors: active) {
+  a:focus-visible,
+  button:focus-visible {
+    outline: 2px solid Highlight;
+  }
 }
 
 html,
@@ -89,6 +99,15 @@ body {
 .screen-inner.crt-warp-active * {
   -webkit-text-fill-color: transparent;
   text-shadow: none;
+}
+
+/* the real focus underline is a straight box-shadow, but the visible text
+   is barrel-warped by TextWarpLayer - a rigid line doesn't track that
+   per-pixel curve, so TextWarpLayer draws its own warped underline into
+   the mirror instead (see _drawMirror's isFocused branch) */
+.screen-inner.crt-warp-active a:focus-visible,
+.screen-inner.crt-warp-active button:focus-visible {
+  box-shadow: none;
 }
 
 .screen-inner.crt-warp-active img {
@@ -350,9 +369,17 @@ article h3 {
   text-decoration-color: rgba(255, 255, 255, 0.4);
 }
 
-.contact-email a:hover,
-.contact-email a:focus-visible {
+.contact-email a:hover {
   text-decoration-color: currentColor;
+}
+
+/* the always-on dim underline is a real, un-warped text-decoration line -
+   fine at rest, but it sits right where the focus indicator needs to read
+   as a clear change, and (like the old box-shadow) doesn't track the CRT
+   warp. Hide it specifically on focus so the warped canvas indicator
+   (see TextWarpLayer) is the only thing changing. */
+.contact-email a:focus-visible {
+  text-decoration: none;
 }
 
 .placeholder-note {
