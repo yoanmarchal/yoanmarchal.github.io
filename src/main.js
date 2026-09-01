@@ -186,22 +186,7 @@ function renderPanel(route, panelsWrap) {
   const section = renderSection();
   panelsWrap.appendChild(section);
 
-  if (prefersReducedMotion()) {
-    section.querySelectorAll(".stat-bar").forEach((bar) => {
-      bar.classList.add("is-visible", "is-filled");
-    });
-  }
-
-  cancelReveal = animateReveal(section, {
-    onLineStart: (el) => {
-      if (!el.classList.contains("stat-label")) return;
-      el.closest("li")?.querySelector(".stat-bar")?.classList.add("is-visible");
-    },
-    onLineSettle: (el) => {
-      if (!el.classList.contains("stat-label")) return;
-      el.closest("li")?.querySelector(".stat-bar")?.classList.add("is-filled");
-    },
-  });
+  cancelReveal = animateReveal(section);
 
   const heading = section.querySelector("h2");
   if (heading) heading.focus();
