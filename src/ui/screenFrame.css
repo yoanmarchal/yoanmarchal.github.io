@@ -58,6 +58,11 @@ body {
   padding: clamp(2.4rem, 6vh, 4.2rem) clamp(3rem, 7vw, 5.5rem);
   overflow: auto;
   text-shadow: 0 0 4px rgba(255, 255, 255, 0.35);
+  /* the visible text is a warped WebGL stand-in (see TextWarpLayer) -
+     the real DOM text underneath is invisible, so a native selection
+     highlight would show up detached from what's actually on screen */
+  -webkit-user-select: none;
+  user-select: none;
   /* per-character scramble spans use a non-breaking space so it can't
      collapse away, which also stops the browser wrapping there - let it
      wrap anywhere instead so long paragraphs don't overflow */
