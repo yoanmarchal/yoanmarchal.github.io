@@ -37,6 +37,14 @@ html {
   html {
     font-size: 100%;
   }
+
+  .screen-inner {
+    /* the desktop clamp's horizontal floor (3rem) never actually shrinks
+       below that on phone-width viewports (7vw only overtakes it past
+       ~685px), eating a quarter of the screen width in padding alone -
+       so mobile gets its own, smaller clamp instead of inheriting it. */
+    padding: clamp(1.2rem, 4vh, 2rem) clamp(1rem, 5vw, 1.6rem);
+  }
 }
 
 body {

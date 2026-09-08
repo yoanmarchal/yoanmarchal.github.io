@@ -9,6 +9,7 @@ import { renderContact } from "./ui/sections/Contact.js";
 import { getCurrentRoute, navigateTo, onRouteChange } from "./router.js";
 import { SectionTransition } from "./scene/SectionTransition.js";
 import { TextWarpLayer } from "./scene/TextWarpLayer.js";
+import { initResponsiveCurvature } from "./scene/curvature.js";
 import { animateReveal, scrambleReveal } from "./ui/scrambleReveal.js";
 
 const SECTION_RENDERERS = {
@@ -64,6 +65,11 @@ function buildShell() {
 
   const textWarp = new TextWarpLayer(textWarpCanvas, inner);
   if (textWarp.supported) inner.classList.add("crt-warp-active");
+  initResponsiveCurvature(textWarp);
+
+  if (import.meta.env.DEV) {
+    import("./dev/curvatureTuner.js").then(({ initCurvatureTuner }) => initCurvatureTuner(textWarp));
+  }
 
   return { inner, panelsWrap, transitionCanvas };
 }

@@ -96,6 +96,7 @@ export class TextWarpLayer {
     this.supported = false;
     this._lastWidth = 0;
     this._lastHeight = 0;
+    this._strength = STRENGTH;
 
     this.mirror = document.createElement("canvas");
     this.mirrorCtx = this.mirror.getContext("2d");
@@ -149,12 +150,13 @@ export class TextWarpLayer {
       fragmentShader,
       uniforms: {
         uTexture: { value: this.texture },
-        uStrength: { value: STRENGTH },
+        uStrength: { value: this._strength },
       },
       transparent: true,
       depthTest: false,
       depthWrite: false,
     });
+    this.material = material;
 
     this.scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
 
@@ -167,6 +169,15 @@ export class TextWarpLayer {
     }
 
     return true;
+  }
+
+  // Used by the dev curvature tuner (see src/dev/curvatureTuner.js) to
+  // adjust the barrel-warp strength live. Stored on the instance (not just
+  // pushed to the current material's uniform) so it survives
+  // _recoverFromResize rebuilding the renderer/material from scratch.
+  setStrength(value) {
+    this._strength = value;
+    if (this.material) this.material.uniforms.uStrength.value = value;
   }
 
   _onWindowResize() {
