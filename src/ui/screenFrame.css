@@ -25,6 +25,20 @@ body {
   height: 100%;
 }
 
+html {
+  /* bumps every rem-based size (text, gaps, padding) by 1.25x - the extra
+     room reads cleaner on the mostly-empty CRT screen, same effect as a
+     user bumping their browser's text size. Dialed back on narrow
+     viewports below so mobile doesn't inherit the same blow-up. */
+  font-size: 125%;
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 100%;
+  }
+}
+
 body {
   background: radial-gradient(ellipse at center, #1a1a1a 0%, #0d0d0d 70%, #050505 100%);
   color: #f2f2f2;
@@ -34,10 +48,12 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 #app {
   width: 100%;
+  height: 100%;
   display: flex;
   justify-content: center;
 }
@@ -48,11 +64,13 @@ body {
      curvature as the screen itself instead of just sitting in a rectangle
      that the curve happens to clip. Glow uses filter:drop-shadow (follows
      the clipped silhouette) rather than box-shadow (would render as a
-     rectangle and get cut off by the clip-path). */
+     rectangle and get cut off by the clip-path). Edge-to-edge: fills the
+     full viewport, no margin/max-size cap, so the tube curvature reads
+     against the viewport edges instead of floating in a frame. */
   position: relative;
-  width: min(98vw, 1700px);
-  height: min(95vh, 980px);
-  margin: 1.5vh auto;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
   background: #0a0a0a;
   clip-path: url(#crtClip);
   filter:
@@ -241,7 +259,7 @@ body {
 }
 
 .hero .logo {
-  width: 56px;
+  width: 3.5rem;
   height: auto;
   filter: grayscale(1) brightness(0) invert(1);
   opacity: 1;

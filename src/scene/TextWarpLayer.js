@@ -101,14 +101,37 @@ export class TextWarpLayer {
     this.mirrorCtx = this.mirror.getContext("2d");
     this._hitOffsets = new WeakMap();
 
+    if (!this._setupRenderer()) return;
+
+    this.supported = true;
+    this._running = true;
+    this._tick = this._tick.bind(this);
+    requestAnimationFrame(this._tick);
+
+    // Chromium (seen in both headless and windowed Chrome) can leave a
+    // stale, ghosted frame composited on this canvas after a resize -
+    // reproducibly, byte-for-byte, regardless of how many extra render()
+    // calls, canvas-size nudges or display:none/reflow toggles follow it
+    // (all tried and empirically verified not to help; the mirror texture
+    // and every renderer/canvas dimension are provably correct throughout,
+    // so this is a GPU/driver-level cache, not a state bug here). Only a
+    // full renderer teardown + rebuild has been found to clear it.
+    // Debounced (not run on every polled _tick resize) so a dragged window
+    // edge doesn't pay this real, momentarily-visible cost on every
+    // intermediate frame.
+    this._onWindowResize = this._onWindowResize.bind(this);
+    window.addEventListener("resize", this._onWindowResize);
+  }
+
+  _setupRenderer() {
     try {
       this.renderer = new THREE.WebGLRenderer({
-        canvas,
+        canvas: this.canvas,
         alpha: true,
         antialias: false,
       });
     } catch {
-      return;
+      return false;
     }
 
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -135,10 +158,44 @@ export class TextWarpLayer {
 
     this.scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
 
-    this.supported = true;
-    this._running = true;
-    this._tick = this._tick.bind(this);
-    requestAnimationFrame(this._tick);
+    // a fresh renderer starts at 0x0 - resize it to the current, already-
+    // known container size (skipped on the very first setup, where
+    // _lastWidth/_lastHeight are still their 0 initial values and _tick's
+    // own first-frame resize will size it instead).
+    if (this._lastWidth && this._lastHeight) {
+      this.renderer.setSize(this._lastWidth, this._lastHeight, false);
+    }
+
+    return true;
+  }
+
+  _onWindowResize() {
+    clearTimeout(this._resizeSettleTimer);
+    this._resizeSettleTimer = setTimeout(() => this._recoverFromResize(), 150);
+  }
+
+  _recoverFromResize() {
+    if (!this._running) return;
+
+    // Swap in a brand-new <canvas> element rather than reusing this.canvas
+    // - a clone never carries over a WebGL context, so the new renderer
+    // below is guaranteed a fresh GPU backing store with no possibility of
+    // inherited state. Reusing the same element would mean forcing the old
+    // context to lose itself first, which is asynchronous (the browser
+    // fires 'webglcontextlost' on its own schedule) and racy to build a
+    // new renderer around synchronously.
+    const staleRenderer = this.renderer;
+    const freshCanvas = this.canvas.cloneNode(false);
+    this.canvas.replaceWith(freshCanvas);
+    this.canvas = freshCanvas;
+
+    this._setupRenderer();
+    staleRenderer.dispose();
+    staleRenderer.forceContextLoss();
+
+    const rect = this.sourceEl.getBoundingClientRect();
+    this._drawMirror(rect);
+    this.renderer.render(this.scene, this.camera);
   }
 
   _resize(width, height) {
@@ -300,5 +357,7 @@ export class TextWarpLayer {
 
   stop() {
     this._running = false;
+    clearTimeout(this._resizeSettleTimer);
+    window.removeEventListener("resize", this._onWindowResize);
   }
 }
