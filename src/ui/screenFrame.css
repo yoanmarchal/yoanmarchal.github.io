@@ -367,6 +367,35 @@ body {
   opacity: 0.85;
 }
 
+.projets-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.projets-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.15);
+  font-size: 0.9rem;
+}
+
+.projets-name {
+  opacity: 0.95;
+}
+
+.projets-meta {
+  opacity: 0.6;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 article {
   margin-bottom: 1rem;
 }
