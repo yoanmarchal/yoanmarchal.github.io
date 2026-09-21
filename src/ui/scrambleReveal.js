@@ -11,6 +11,22 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// span/div have an implicit ARIA role of "generic", which the ARIA-in-HTML
+// spec prohibits from carrying aria-label - Lighthouse/axe flag it as
+// "prohibited ARIA attribute". role="text" is the standard ARIA 1.2 role
+// for exactly this case (a fragmented run of text with an author-supplied
+// name) and does allow aria-label. Elements with a semantic tag (h1-h6,
+// p, li...) already have a role that permits aria-label, so they're left
+// alone.
+const GENERIC_TAGS = new Set(["SPAN", "DIV"]);
+
+function setAccessibleLabel(el, text) {
+  el.setAttribute("aria-label", text);
+  if (GENERIC_TAGS.has(el.tagName)) {
+    el.setAttribute("role", "text");
+  }
+}
+
 /**
  * Reveals `text` inside `el` character by character, each character
  * cycling through random glyphs before locking in - a "Matrix decrypt"
@@ -43,7 +59,7 @@ export function scrambleReveal(el, text, options = {}) {
   wrapper.setAttribute("aria-hidden", "true");
   wrapper.append(...spans);
 
-  el.setAttribute("aria-label", text);
+  setAccessibleLabel(el, text);
   el.textContent = "";
   el.appendChild(wrapper);
 
@@ -134,7 +150,7 @@ export function animateReveal(root, options = {}) {
   if (reduceMotion) return () => {};
 
   leaves.forEach(({ el, text }) => {
-    el.setAttribute("aria-label", text);
+    setAccessibleLabel(el, text);
     el.textContent = "";
     // stays collapsed (no reserved blank line) until this leaf's own
     // animation starts, so nothing shows up-front on load - lines appear
