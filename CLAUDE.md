@@ -18,7 +18,7 @@ There is no lint script and no test suite configured in this repo.
 
 ## Architecture
 
-**Entry point / boot sequence** — `src/main.js` builds the entire DOM shell in code (no HTML templates beyond the `index.html` skeleton) and runs a scripted, sequential async boot: preloader lines → hero reveal (logo/name/tagline, FLIP-animated from centered to its in-flow position) → nav tabs → first panel. Every step is instant under `prefers-reduced-motion`, and any key/click jumps to the end (`bootSkip` signal: steps use `bootWait`/`bootType`, which resolve early on skip). Once seen, the boot is skipped for the rest of the tab session (`sessionStorage`).
+**Entry point / boot sequence** — `src/main.js` builds the entire DOM shell in code (no HTML templates beyond the `index.html` skeleton) and runs a scripted, sequential async boot: preloader lines → hero reveal (logo/name/tagline, FLIP-animated from centered to its in-flow position) → nav tabs → first panel. Every step is instant under `prefers-reduced-motion`, and any key/click jumps to the end (`bootSkip` signal: steps use `bootWait`/`bootType`, which resolve early on skip).
 
 **Content** — `src/data/content.js` is the single source of truth for all displayed text (hero, preloader lines, per-section copy). Section renderers pull from it rather than hardcoding strings.
 

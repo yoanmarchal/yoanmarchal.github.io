@@ -19,10 +19,6 @@ const SECTION_RENDERERS = {
   contact: renderContact,
 };
 
-// once the boot has played in this tab, reloads/revisits skip straight to
-// the content instead of replaying the whole sequence
-const BOOT_SEEN_KEY = "crt-boot-seen";
-
 const CURSOR_BLINK_MS = 530;
 
 function wait(ms) {
@@ -31,22 +27,6 @@ function wait(ms) {
 
 function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-function readBootSeen() {
-  try {
-    return sessionStorage.getItem(BOOT_SEEN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markBootSeen() {
-  try {
-    sessionStorage.setItem(BOOT_SEEN_KEY, "1");
-  } catch {
-    // storage blocked - the boot simply plays again next time
-  }
 }
 
 // Lets any key/click/tap jump the boot sequence to its end: every step
@@ -373,8 +353,6 @@ function showSkipHint(inner) {
 }
 
 async function boot(inner, panelsWrap, prompt) {
-  if (readBootSeen()) bootSkip.trigger();
-
   const onInput = (event) => {
     // modifier-only presses (e.g. alt-tabbing away) aren't a skip request
     if (event.type === "keydown" && ["Alt", "Control", "Meta", "Shift"].includes(event.key)) return;
@@ -403,7 +381,6 @@ async function boot(inner, panelsWrap, prompt) {
     hint?.remove();
     window.removeEventListener("keydown", onInput);
     window.removeEventListener("pointerdown", onInput);
-    markBootSeen();
   }
 }
 

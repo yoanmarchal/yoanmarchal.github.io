@@ -261,6 +261,15 @@ body {
 /* --- Hero --- */
 
 .hero {
+  /* shared by the text and the logo: the logo's height is computed from
+     these so it spans exactly name + tagline (a stretched flex item
+     can't do it - its width depends on its height and vice versa) */
+  --hero-name-size: 1.6rem;
+  --hero-name-leading: 1;
+  --hero-tagline-gap: 0.4rem;
+  --hero-tagline-size: 0.85rem;
+  --hero-tagline-leading: 1.15;
+
   position: relative;
   display: flex;
   align-items: center;
@@ -272,8 +281,13 @@ body {
 }
 
 .hero .logo {
-  width: 3.5rem;
-  height: auto;
+  flex: none;
+  width: auto;
+  height: calc(
+    var(--hero-name-size) * var(--hero-name-leading) +
+    var(--hero-tagline-gap) +
+    var(--hero-tagline-size) * var(--hero-tagline-leading)
+  );
   filter: grayscale(1) brightness(0) invert(1);
   opacity: 1;
   transform: translateY(0);
@@ -287,14 +301,32 @@ body {
 
 .hero h1 {
   margin: 0;
-  font-size: 1.6rem;
+  font-size: var(--hero-name-size);
+  /* tight leading so the glyphs, not empty line-box space, reach the
+     top/bottom of the block the logo is matched to */
+  line-height: var(--hero-name-leading);
   letter-spacing: 0.08em;
 }
 
 .tagline {
-  margin: 0.3rem 0 0;
-  font-size: 0.85rem;
+  margin: var(--hero-tagline-gap) 0 0;
+  font-size: var(--hero-tagline-size);
+  line-height: var(--hero-tagline-leading);
   opacity: 0.85;
+}
+
+/* Too narrow for logo + one-line tagline side by side: the tagline would
+   wrap and outgrow the logo, so stack the logo above the text instead. */
+@media (max-width: 760px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+
+  .hero .logo {
+    height: 2.2rem;
+  }
 }
 
 .tagline-sep {
