@@ -353,7 +353,7 @@ export class TextWarpLayer {
   }
 
   _clearHitOffsets() {
-    for (const el of this.sourceEl.querySelectorAll("button, a")) {
+    for (const el of this.sourceEl.querySelectorAll("button, a, input")) {
       el.style.transform = "";
     }
     this._hitOffsets = new WeakMap();
@@ -369,7 +369,7 @@ export class TextWarpLayer {
   _alignHitBoxes(originRect) {
     const updates = [];
 
-    for (const interactiveEl of this.sourceEl.querySelectorAll("button, a")) {
+    for (const interactiveEl of this.sourceEl.querySelectorAll("button, a, input")) {
       const iRect = interactiveEl.getBoundingClientRect();
       if (iRect.width <= 0 || iRect.height <= 0) continue;
 

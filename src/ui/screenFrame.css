@@ -573,13 +573,134 @@ article h3 {
   font-size: 0.9rem;
 }
 
+.prompt[hidden],
+.prompt-suggestions[hidden] {
+  display: none;
+}
+
+.prompt-line {
+  display: flex;
+  align-items: baseline;
+  gap: 1ch;
+  margin: 0;
+}
+
+.prompt-field {
+  /* the invisible input is stretched over this, so a click/tap anywhere
+     on the rest of the line focuses it */
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/* typed spaces (incl. a trailing one) must keep their width */
+.prompt-typed {
+  white-space: pre;
+}
+
+.prompt-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  /* the value, caret and selection are drawn by the spans beside it */
+  opacity: 0;
+  caret-color: transparent;
+  outline: none;
+  cursor: text;
+}
+
+/* iOS zooms into any focused input under 16px */
+@media (hover: none) {
+  .prompt-input {
+    font-size: max(16px, 1em);
+  }
+}
+
 .prompt .cursor {
-  margin-left: 1ch;
+  position: relative;
+}
+
+.prompt .cursor-block {
+  opacity: 0.45;
+}
+
+/* the glyph under the block, inverted (screen-dark on the block) so it
+   stays readable; drawn after the block, so on top of it in the mirror */
+.prompt .cursor-char {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  color: #0a0a0a;
+}
+
+/* focused: the cursor turns accent - this is the prompt's focus indicator */
+.prompt.is-focused .cursor-block {
+  opacity: 1;
   color: var(--accent);
 }
 
-.prompt .cursor.is-off {
+/* blink "off" phase: no block, the character shows as normal text again */
+.prompt .cursor.is-off .cursor-block {
   opacity: 0;
+}
+
+.prompt .cursor.is-off .cursor-char {
+  color: inherit;
+}
+
+.prompt .cursor.is-off.is-ghost .cursor-char {
+  opacity: 0.4;
+}
+
+.prompt-ghost {
+  opacity: 0.4;
+}
+
+.prompt-ghost.is-placeholder {
+  margin-left: 1ch;
+  font-size: 0.8rem;
+  opacity: 0.35;
+}
+
+.prompt-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.4ch;
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0 0 0 2ch;
+}
+
+.prompt-suggestions button {
+  padding: 0.1rem 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  letter-spacing: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.prompt-suggestions button:hover,
+.prompt-suggestions button.is-active {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.prompt-message {
+  margin: 0.4rem 0 0;
+  padding-left: 2ch;
+  font-size: 0.8rem;
+  opacity: 0.6;
 }
 
 .boot-skip-hint {

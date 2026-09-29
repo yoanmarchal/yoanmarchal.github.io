@@ -162,6 +162,9 @@ function collectLeafTextElements(root) {
  *   `linePause` ms, then the next line starts - reads like a real terminal
  *   printing a boot log, but only suits a handful of lines.
  *
+ * `onComplete` fires once every line has settled (immediately under
+ * reduced motion); never after cancel.
+ *
  * Returns a cancel function.
  */
 export function animateReveal(root, options = {}) {
@@ -173,6 +176,7 @@ export function animateReveal(root, options = {}) {
     linePause = 150,
     onLineStart,
     onLineSettle,
+    onComplete,
     ...scrambleOptions
   } = options;
 
@@ -182,7 +186,10 @@ export function animateReveal(root, options = {}) {
     text: el.textContent,
   }));
 
-  if (reduceMotion) return () => {};
+  if (reduceMotion || leaves.length === 0) {
+    onComplete?.();
+    return () => {};
+  }
 
   const lineStagger = stagger ?? Math.min(160, Math.max(12, budget / Math.max(leaves.length, 1)));
 
@@ -196,15 +203,21 @@ export function animateReveal(root, options = {}) {
     el.classList.add("reveal-pending");
   });
 
+  let cancelled = false;
+  let settledCount = 0;
+
   const startLine = (el, text) => {
     el.classList.remove("reveal-pending");
     onLineStart?.(el);
     const result = scrambleReveal(el, text, { maxDuration: lineDuration, ...scrambleOptions });
-    result.promise.then(() => onLineSettle?.(el));
+    result.promise.then(() => {
+      onLineSettle?.(el);
+      settledCount += 1;
+      if (settledCount === leaves.length && !cancelled) onComplete?.();
+    });
     return result;
   };
 
-  let cancelled = false;
   const activeCancels = [];
 
   if (sequential) {

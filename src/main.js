@@ -10,6 +10,7 @@ import { ROUTES, ROUTE_LABELS, getCurrentRoute, navigateTo, onRouteChange } from
 import { SectionTransition } from "./scene/SectionTransition.js";
 import { TextWarpLayer } from "./scene/TextWarpLayer.js";
 import { animateReveal, scrambleReveal } from "./ui/scrambleReveal.js";
+import { createPrompt } from "./ui/Prompt.js";
 
 const SECTION_RENDERERS = {
   profil: renderProfil,
@@ -18,8 +19,6 @@ const SECTION_RENDERERS = {
   projets: renderProjets,
   contact: renderContact,
 };
-
-const CURSOR_BLINK_MS = 530;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -151,31 +150,6 @@ function buildHero() {
   return { hero, logo, name, sep, job, location };
 }
 
-// A blinking block cursor on a prompt line after the current panel, like a
-// terminal waiting for input. Blinks by toggling a class from JS rather than
-// an infinite CSS animation, so TextWarpLayer only redraws on each toggle
-// instead of being kept rendering every frame.
-function buildPrompt() {
-  const prompt = document.createElement("p");
-  prompt.className = "prompt";
-  prompt.setAttribute("aria-hidden", "true");
-
-  const caret = document.createElement("span");
-  caret.textContent = ">";
-
-  const cursor = document.createElement("span");
-  cursor.className = "cursor";
-  cursor.textContent = "█";
-
-  prompt.append(caret, cursor);
-
-  if (!prefersReducedMotion()) {
-    setInterval(() => cursor.classList.toggle("is-off"), CURSOR_BLINK_MS);
-  }
-
-  return prompt;
-}
-
 async function runPreloader(inner) {
   if (isBootInstant()) return;
 
@@ -295,8 +269,11 @@ async function revealNavTabs(nav) {
 
 // Scrambles the COMPÉTENCES heading in, then fades the group labels and
 // stack tags in one at a time, in reading order.
-function revealCompetences(section) {
-  if (prefersReducedMotion()) return () => {};
+function revealCompetences(section, onComplete) {
+  if (prefersReducedMotion()) {
+    onComplete();
+    return () => {};
+  }
 
   const heading = section.querySelector("h2");
   const items = [...section.querySelectorAll(".stack-group h3, .stack-tag")];
@@ -319,6 +296,7 @@ function revealCompetences(section) {
     }
     if (cancelled) return;
     await staggerFadeReveal(items, { step: 40 });
+    if (!cancelled) onComplete();
   })();
 
   return () => {
@@ -334,9 +312,14 @@ function renderPanel(route, panelsWrap, prompt) {
 
   const renderSection = SECTION_RENDERERS[route] || renderProfil;
   const section = renderSection();
-  panelsWrap.replaceChildren(section, prompt);
+  // the prompt only comes back once the section has finished printing,
+  // like a terminal returning control after a command's output
+  prompt.hide();
+  panelsWrap.replaceChildren(section, prompt.element);
 
-  cancelReveal = route === "competences" ? revealCompetences(section) : animateReveal(section);
+  const onComplete = () => prompt.show();
+  cancelReveal =
+    route === "competences" ? revealCompetences(section, onComplete) : animateReveal(section, { onComplete });
 
   const heading = section.querySelector("h2");
   if (heading) heading.focus();
@@ -384,11 +367,14 @@ async function boot(inner, panelsWrap, prompt) {
   }
 }
 
-// Number keys 1-5 jump straight to the matching section.
+// Number keys 1-5 jump straight to the matching section - except while
+// typing in a field (e.g. the prompt), where they're just characters.
 function bindShortcuts() {
   window.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
     if (!/^[1-9]$/.test(event.key)) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
     const route = ROUTES[Number(event.key) - 1];
     if (route) navigateTo(route);
   });
@@ -397,7 +383,7 @@ function bindShortcuts() {
 async function init() {
   const { inner, panelsWrap, transitionCanvas } = buildShell();
   const transition = new SectionTransition(transitionCanvas);
-  const prompt = buildPrompt();
+  const prompt = createPrompt();
 
   let { nav, currentRoute } = await boot(inner, panelsWrap, prompt);
 
