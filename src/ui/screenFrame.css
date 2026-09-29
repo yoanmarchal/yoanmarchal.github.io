@@ -2,6 +2,13 @@
   box-sizing: border-box;
 }
 
+:root {
+  /* single phosphor accent (active tab, links, cursor) on the otherwise
+     monochrome screen - swap for green (#33ff66) or white to change the
+     tube's character */
+  --accent: #ffb000;
+}
+
 a:focus-visible,
 button:focus-visible {
   outline: none;
@@ -48,6 +55,7 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
 }
 
@@ -70,6 +78,9 @@ body {
   position: relative;
   width: 100vw;
   height: 100vh;
+  /* dvh tracks the mobile browser's collapsing URL bar - plain vh would
+     push the bottom of the tube off-screen there */
+  height: 100dvh;
   margin: 0;
   background: #0a0a0a;
   clip-path: url(#crtClip);
@@ -96,15 +107,16 @@ body {
      mid-transition, briefly showing a horizontal scrollbar */
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
   text-shadow: 0 0 4px rgba(255, 255, 255, 0.35);
   /* the visible text is a warped WebGL stand-in (see TextWarpLayer) -
      the real DOM text underneath is invisible, so a native selection
      highlight would show up detached from what's actually on screen */
   -webkit-user-select: none;
   user-select: none;
-  /* per-character scramble spans use a non-breaking space so it can't
-     collapse away, which also stops the browser wrapping there - let it
-     wrap anywhere instead so long paragraphs don't overflow */
+  /* last resort for a single token wider than the screen (e.g. a long
+     URL) - regular text wraps at its spaces */
   overflow-wrap: anywhere;
 }
 
@@ -136,13 +148,14 @@ body {
 }
 
 .screen-inner.crt-warp-active .stack-tag,
-.screen-inner.crt-warp-active .placeholder-note {
-  /* these elements have a real border, which TextWarpLayer now mirrors
-     and warps too - visibility:hidden (not border-color:transparent)
-     keeps their true border-color/width/style readable via
-     getComputedStyle. Safe here since neither is focusable, unlike the
-     nav tabs (which rely on -webkit-text-fill-color instead so their
-     focus outline still shows). */
+.screen-inner.crt-warp-active [data-warp-border] {
+  /* these elements have a real border, which TextWarpLayer mirrors and
+     warps too - a straight CSS border would drift away from the curved
+     text towards the screen edges. visibility:hidden (not
+     border-color:transparent) keeps their true border-color/width/style
+     readable via getComputedStyle. Only for non-focusable elements,
+     unlike the nav tabs (which rely on -webkit-text-fill-color instead so
+     their focus outline still shows). */
   visibility: hidden;
 }
 
@@ -248,6 +261,15 @@ body {
 /* --- Hero --- */
 
 .hero {
+  /* shared by the text and the logo: the logo's height is computed from
+     these so it spans exactly name + tagline (a stretched flex item
+     can't do it - its width depends on its height and vice versa) */
+  --hero-name-size: 1.6rem;
+  --hero-name-leading: 1;
+  --hero-tagline-gap: 0.4rem;
+  --hero-tagline-size: 0.85rem;
+  --hero-tagline-leading: 1.15;
+
   position: relative;
   display: flex;
   align-items: center;
@@ -259,8 +281,13 @@ body {
 }
 
 .hero .logo {
-  width: 3.5rem;
-  height: auto;
+  flex: none;
+  width: auto;
+  height: calc(
+    var(--hero-name-size) * var(--hero-name-leading) +
+    var(--hero-tagline-gap) +
+    var(--hero-tagline-size) * var(--hero-tagline-leading)
+  );
   filter: grayscale(1) brightness(0) invert(1);
   opacity: 1;
   transform: translateY(0);
@@ -274,14 +301,32 @@ body {
 
 .hero h1 {
   margin: 0;
-  font-size: 1.6rem;
+  font-size: var(--hero-name-size);
+  /* tight leading so the glyphs, not empty line-box space, reach the
+     top/bottom of the block the logo is matched to */
+  line-height: var(--hero-name-leading);
   letter-spacing: 0.08em;
 }
 
 .tagline {
-  margin: 0.3rem 0 0;
-  font-size: 0.85rem;
+  margin: var(--hero-tagline-gap) 0 0;
+  font-size: var(--hero-tagline-size);
+  line-height: var(--hero-tagline-leading);
   opacity: 0.85;
+}
+
+/* Too narrow for logo + one-line tagline side by side: the tagline would
+   wrap and outgrow the logo, so stack the logo above the text instead. */
+@media (max-width: 760px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+
+  .hero .logo {
+    height: 2.2rem;
+  }
 }
 
 .tagline-sep {
@@ -305,10 +350,11 @@ body {
 }
 
 .tab {
-  background: none;
-  border: none;
+  /* inline-block: TextWarpLayer's hit-box compensation is a CSS transform,
+     which doesn't apply to plain inline boxes */
+  display: inline-block;
   color: inherit;
-  font-family: inherit;
+  text-decoration: none;
   padding: 0.3rem 0.2rem;
   font-size: 0.85rem;
   opacity: 0.6;
@@ -323,7 +369,19 @@ body {
 
 .tab.is-active {
   opacity: 1;
-  color: #ffffff;
+  color: var(--accent);
+}
+
+.tab-key {
+  margin-right: 0.5ch;
+  opacity: 0.5;
+}
+
+/* number-key shortcuts mean nothing without a keyboard */
+@media (hover: none) {
+  .tab-key {
+    display: none;
+  }
 }
 
 /* --- Panels --- */
@@ -335,6 +393,12 @@ body {
 
 .panel {
   padding-top: 1rem;
+}
+
+/* keeps prose at a readable measure on wide screens */
+.panel > p {
+  max-width: 68ch;
+  line-height: 1.6;
 }
 
 .panel h2 {
@@ -350,6 +414,33 @@ body {
 .boot-line {
   margin: 0.4em 0;
   font-size: 0.9rem;
+}
+
+.stack-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.stack-group {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  gap: 0.4rem 1rem;
+  align-items: baseline;
+}
+
+.stack-group h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: normal;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+}
+
+@media (max-width: 640px) {
+  .stack-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .stack-list {
@@ -377,13 +468,18 @@ body {
 }
 
 .projets-list li {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 4ch minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 1rem;
+  gap: 0.2rem 1.2rem;
   padding-bottom: 0.35rem;
   border-bottom: 1px dashed rgba(255, 255, 255, 0.15);
   font-size: 0.9rem;
+}
+
+.projets-year {
+  opacity: 0.5;
+  font-size: 0.8rem;
 }
 
 .projets-name {
@@ -394,6 +490,17 @@ body {
   opacity: 0.6;
   font-size: 0.8rem;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .projets-list li {
+    grid-template-columns: 4ch minmax(0, 1fr);
+  }
+
+  .projets-meta {
+    grid-column: 2;
+    white-space: normal;
+  }
 }
 
 article {
@@ -411,13 +518,42 @@ article h3 {
   opacity: 0.75;
 }
 
-.contact-email a {
-  color: inherit;
-  text-decoration-color: rgba(255, 255, 255, 0.4);
+.contact-email a,
+.contact-links a {
+  /* inline-block so the hit-box compensation transform applies */
+  display: inline-block;
+  color: var(--accent);
+  text-decoration-color: rgba(255, 176, 0, 0.4);
 }
 
-.contact-email a:hover {
+.contact-email a:hover,
+.contact-links a:hover {
   text-decoration-color: currentColor;
+}
+
+.copy-email {
+  margin-left: 1ch;
+  padding: 0.2rem 0.2rem;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  letter-spacing: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.copy-email:hover,
+.copy-email:focus-visible {
+  opacity: 1;
+}
+
+.contact-links {
+  list-style: none;
+  margin: 0.8rem 0 0;
+  padding: 0;
 }
 
 /* the always-on dim underline is a real, un-warped text-decoration line -
@@ -425,8 +561,170 @@ article h3 {
    as a clear change, and (like the old box-shadow) doesn't track the CRT
    warp. Hide it specifically on focus so the warped canvas indicator
    (see TextWarpLayer) is the only thing changing. */
-.contact-email a:focus-visible {
+.contact-email a:focus-visible,
+.contact-links a:focus-visible {
   text-decoration: none;
+}
+
+/* --- Terminal prompt / boot hint --- */
+
+.prompt {
+  margin: 1.2rem 0 0;
+  font-size: 0.9rem;
+}
+
+.prompt[hidden],
+.prompt-suggestions[hidden] {
+  display: none;
+}
+
+.prompt-line {
+  display: flex;
+  align-items: baseline;
+  gap: 1ch;
+  margin: 0;
+}
+
+.prompt-field {
+  /* the invisible input is stretched over this, so a click/tap anywhere
+     on the rest of the line focuses it */
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/* typed spaces (incl. a trailing one) must keep their width */
+.prompt-typed {
+  white-space: pre;
+}
+
+.prompt-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  /* the value, caret and selection are drawn by the spans beside it */
+  opacity: 0;
+  caret-color: transparent;
+  outline: none;
+  cursor: text;
+}
+
+/* iOS zooms into any focused input under 16px */
+@media (hover: none) {
+  .prompt-input {
+    font-size: max(16px, 1em);
+  }
+}
+
+.prompt .cursor {
+  position: relative;
+}
+
+.prompt .cursor-block {
+  opacity: 0.45;
+}
+
+/* the glyph under the block, inverted (screen-dark on the block) so it
+   stays readable; drawn after the block, so on top of it in the mirror */
+.prompt .cursor-char {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  color: #0a0a0a;
+}
+
+/* focused: the cursor turns accent - this is the prompt's focus indicator */
+.prompt.is-focused .cursor-block {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* blink "off" phase: no block, the character shows as normal text again */
+.prompt .cursor.is-off .cursor-block {
+  opacity: 0;
+}
+
+.prompt .cursor.is-off .cursor-char {
+  color: inherit;
+}
+
+.prompt .cursor.is-off.is-ghost .cursor-char {
+  opacity: 0.4;
+}
+
+.prompt-ghost {
+  opacity: 0.4;
+}
+
+.prompt-ghost.is-placeholder {
+  margin-left: 1ch;
+  font-size: 0.8rem;
+  opacity: 0.35;
+}
+
+.prompt-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.4ch;
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0 0 0 2ch;
+}
+
+.prompt-suggestions button {
+  padding: 0.1rem 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  letter-spacing: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.prompt-suggestions button:hover,
+.prompt-suggestions button.is-active {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.prompt-message {
+  margin: 0.4rem 0 0;
+  padding-left: 2ch;
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
+.boot-skip-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 9%;
+  margin: 0;
+  text-align: center;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  opacity: 0.45;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .placeholder-note {
@@ -469,6 +767,10 @@ article h3 {
   line-height: 1.35em;
   vertical-align: top;
   overflow: hidden;
+}
+
+.scramble-word {
+  white-space: nowrap;
 }
 
 .scramble-char.is-scrambling {

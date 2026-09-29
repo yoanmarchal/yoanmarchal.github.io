@@ -11,38 +11,42 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// span/div have an implicit ARIA role of "generic", which the ARIA-in-HTML
-// spec prohibits from carrying aria-label - Lighthouse/axe flag it as
-// "prohibited ARIA attribute". role="text" is the standard ARIA 1.2 role
-// for exactly this case (a fragmented run of text with an author-supplied
-// name) and does allow aria-label. Elements with a semantic tag (h1-h6,
-// p, li...) already have a role that permits aria-label, so they're left
-// alone.
-const GENERIC_TAGS = new Set(["SPAN", "DIV"]);
-
-function setAccessibleLabel(el, text) {
-  el.setAttribute("aria-label", text);
-  if (GENERIC_TAGS.has(el.tagName)) {
-    el.setAttribute("role", "text");
-  }
+// The real text, visually hidden but read by assistive tech in place of the
+// aria-hidden scramble spans next to it. Used instead of aria-label, which
+// is prohibited on generic/paragraph roles (span, div, p) and ignored by
+// several screen readers there - a hidden text node works on any element.
+export function createScreenReaderText(text) {
+  const span = document.createElement("span");
+  span.className = "sr-only";
+  span.textContent = text;
+  return span;
 }
 
 /**
  * Reveals `text` inside `el` character by character, each character
  * cycling through random glyphs before locking in - a "Matrix decrypt"
- * terminal effect. The real text stays available to assistive tech via
- * aria-label immediately, independent of the animation.
+ * terminal effect. The real text stays available to assistive tech via a
+ * visually-hidden copy immediately, independent of the animation.
  *
- * Returns { cancel, promise } - promise resolves once every character
- * has settled, so callers can chain lines sequentially.
+ * Options: `charDelay` (ms between characters starting), `scrambleDuration`
+ * (ms each character scrambles), `maxDuration` (caps the whole line by
+ * shrinking charDelay for long text).
+ *
+ * Returns { cancel, finish, promise } - promise resolves once every
+ * character has settled (or finish() jumped straight to the end), so
+ * callers can chain lines sequentially.
  */
 export function scrambleReveal(el, text, options = {}) {
   const chars = [...text];
-  const charDelay =
-    options.charDelay ?? Math.max(4, Math.min(24, 900 / Math.max(chars.length, 1)));
+  const count = Math.max(chars.length, 1);
   const scrambleDuration = options.scrambleDuration ?? 200;
+  let charDelay = options.charDelay ?? Math.max(4, Math.min(24, 900 / count));
+  if (options.maxDuration) {
+    charDelay = Math.min(charDelay, Math.max(0, options.maxDuration - scrambleDuration) / count);
+  }
 
-  const spans = chars.map(() => {
+  const spans = chars.map((ch) => {
+    if (ch === " ") return null;
     const span = document.createElement("span");
     // starts as NBSP regardless of the real character - the first
     // requestAnimationFrame callback below is what actually decides
@@ -55,13 +59,28 @@ export function scrambleReveal(el, text, options = {}) {
     return span;
   });
 
+  // Each character box is an atomic inline, and line breaking allows a
+  // break next to any atomic inline - so a bare run of them wraps
+  // mid-word. Grouping each word's boxes in a nowrap span, separated by
+  // real (breakable) spaces, keeps wrapping at word boundaries.
   const wrapper = document.createElement("span");
   wrapper.setAttribute("aria-hidden", "true");
-  wrapper.append(...spans);
+  let word = null;
+  spans.forEach((span) => {
+    if (!span) {
+      wrapper.append(" ");
+      word = null;
+      return;
+    }
+    if (!word) {
+      word = document.createElement("span");
+      word.className = "scramble-word";
+      wrapper.append(word);
+    }
+    word.append(span);
+  });
 
-  setAccessibleLabel(el, text);
-  el.textContent = "";
-  el.appendChild(wrapper);
+  el.replaceChildren(createScreenReaderText(text), wrapper);
 
   const start = performance.now();
   let rafId;
@@ -102,12 +121,23 @@ export function scrambleReveal(el, text, options = {}) {
 
   rafId = requestAnimationFrame(frame);
 
-  return { cancel: () => cancelAnimationFrame(rafId), promise };
+  function finish() {
+    cancelAnimationFrame(rafId);
+    chars.forEach((ch, i) => {
+      if (ch === " ") return;
+      spans[i].textContent = ch;
+      spans[i].classList.remove("is-scrambling");
+    });
+    resolveDone();
+  }
+
+  return { cancel: () => cancelAnimationFrame(rafId), finish, promise };
 }
 
 function collectLeafTextElements(root) {
   const result = [];
   (function walk(node) {
+    if (node.classList?.contains("sr-only")) return;
     const children = [...node.children];
     if (children.length === 0) {
       if (node.textContent.trim().length > 0) result.push(node);
@@ -123,21 +153,30 @@ function collectLeafTextElements(root) {
  * and reveals each with scrambleReveal.
  *
  * Two modes:
- * - sequential (default): each line fully settles, waits `linePause` ms,
- *   then the next line starts - reads like a real terminal printing a
- *   boot log, consistent across every section.
- * - cascade (sequential: false): lines start `stagger` ms apart and can
- *   overlap - kept as an option, currently unused.
+ * - cascade (default): lines start `stagger` ms apart and overlap. The
+ *   stagger is derived from `budget` (total ms for the whole section), so
+ *   a long list like PROJETS takes about as long as a short one instead of
+ *   growing linearly with its line count; each line is itself capped at
+ *   `lineDuration` ms.
+ * - sequential (sequential: true): each line fully settles, waits
+ *   `linePause` ms, then the next line starts - reads like a real terminal
+ *   printing a boot log, but only suits a handful of lines.
+ *
+ * `onComplete` fires once every line has settled (immediately under
+ * reduced motion); never after cancel.
  *
  * Returns a cancel function.
  */
 export function animateReveal(root, options = {}) {
   const {
-    stagger = 70,
-    sequential = true,
+    budget = 1400,
+    lineDuration = 700,
+    stagger,
+    sequential = false,
     linePause = 150,
     onLineStart,
     onLineSettle,
+    onComplete,
     ...scrambleOptions
   } = options;
 
@@ -147,26 +186,38 @@ export function animateReveal(root, options = {}) {
     text: el.textContent,
   }));
 
-  if (reduceMotion) return () => {};
+  if (reduceMotion || leaves.length === 0) {
+    onComplete?.();
+    return () => {};
+  }
+
+  const lineStagger = stagger ?? Math.min(160, Math.max(12, budget / Math.max(leaves.length, 1)));
 
   leaves.forEach(({ el, text }) => {
-    setAccessibleLabel(el, text);
-    el.textContent = "";
+    // the visible text goes, but a screen-reader copy stays so the content
+    // is announced up-front rather than only once its line animates
+    el.replaceChildren(createScreenReaderText(text));
     // stays collapsed (no reserved blank line) until this leaf's own
     // animation starts, so nothing shows up-front on load - lines appear
     // one at a time as a real terminal would print them
     el.classList.add("reveal-pending");
   });
 
+  let cancelled = false;
+  let settledCount = 0;
+
   const startLine = (el, text) => {
     el.classList.remove("reveal-pending");
     onLineStart?.(el);
-    const result = scrambleReveal(el, text, scrambleOptions);
-    result.promise.then(() => onLineSettle?.(el));
+    const result = scrambleReveal(el, text, { maxDuration: lineDuration, ...scrambleOptions });
+    result.promise.then(() => {
+      onLineSettle?.(el);
+      settledCount += 1;
+      if (settledCount === leaves.length && !cancelled) onComplete?.();
+    });
     return result;
   };
 
-  let cancelled = false;
   const activeCancels = [];
 
   if (sequential) {
@@ -186,7 +237,7 @@ export function animateReveal(root, options = {}) {
         if (cancelled) return;
         const { cancel } = startLine(el, text);
         activeCancels.push(cancel);
-      }, index * stagger);
+      }, index * lineStagger);
       activeCancels.push(() => clearTimeout(timeoutId));
     });
   }
