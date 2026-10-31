@@ -1,19 +1,28 @@
 import { content } from "../../data/content.js";
+import { escapeHtml } from "../escapeHtml.js";
 
 export function renderCompetences() {
   const section = document.createElement("section");
   section.id = "panel-competences";
   section.className = "panel";
-  section.setAttribute("role", "tabpanel");
-  section.setAttribute("aria-labelledby", "tab-competences");
 
-  const items = content.competences
-    .map((tech) => `<li class="stack-tag">${tech}</li>`)
+  // labels uppercased in JS, not via CSS text-transform - TextWarpLayer
+  // draws each leaf's textContent, so a CSS-only transform wouldn't show
+  const groups = content.competences
+    .map(
+      (group) => `
+      <div class="stack-group">
+        <h3>${escapeHtml(group.label.toUpperCase())}</h3>
+        <ul class="stack-list">
+          ${group.items.map((tech) => `<li class="stack-tag">${escapeHtml(tech)}</li>`).join("")}
+        </ul>
+      </div>`
+    )
     .join("");
 
   section.innerHTML = `
     <h2 tabindex="-1">COMPÉTENCES</h2>
-    <ul class="stack-list">${items}</ul>
+    <div class="stack-groups">${groups}</div>
   `;
 
   return section;

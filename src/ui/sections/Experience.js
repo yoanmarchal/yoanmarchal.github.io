@@ -1,18 +1,17 @@
 import { content } from "../../data/content.js";
+import { escapeHtml } from "../escapeHtml.js";
 
 export function renderExperience() {
   const section = document.createElement("section");
   section.id = "panel-experience";
   section.className = "panel";
-  section.setAttribute("role", "tabpanel");
-  section.setAttribute("aria-labelledby", "tab-experience");
 
   const entries = content.experience
     .map(
       (job) => `
       <article>
-        <h3>${job.role} — ${job.company}</h3>
-        <p class="meta">${job.meta}</p>
+        <h3>${escapeHtml(job.role)} — ${escapeHtml(job.company)}</h3>
+        <p class="meta">${escapeHtml(job.meta)}</p>
       </article>`
     )
     .join("");

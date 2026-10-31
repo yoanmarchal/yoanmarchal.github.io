@@ -32,5 +32,6 @@ void main() {
 
   vec3 color = mix(vec3(0.06, 0.06, 0.06), vec3(0.95, 0.95, 0.95), noise);
 
-  gl_FragColor = vec4(color, alpha);
+  /* premultiplied: the context composites with premultipliedAlpha */
+  gl_FragColor = vec4(color * alpha, alpha);
 }

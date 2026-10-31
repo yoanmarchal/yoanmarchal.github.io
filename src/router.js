@@ -6,6 +6,14 @@ export const ROUTES = [
   "contact",
 ];
 
+export const ROUTE_LABELS = {
+  profil: "Profil",
+  competences: "Compétences",
+  experience: "Expérience",
+  projets: "Projets",
+  contact: "Contact",
+};
+
 const DEFAULT_ROUTE = "profil";
 
 export function getCurrentRoute() {

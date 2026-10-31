@@ -1,6 +1,6 @@
-import * as THREE from "three";
-import vertexShader from "../shaders/transition.vert.glsl";
+import vertexShader from "../shaders/quad.vert.glsl";
 import fragmentShader from "../shaders/transition.frag.glsl";
+import { createQuadProgram, getWebGLContext, sizeCanvas } from "./gl.js";
 
 const DURATION_MS = 550;
 
@@ -9,51 +9,22 @@ export class SectionTransition {
     this.canvas = canvas;
     this.supported = false;
 
+    const gl = getWebGLContext(canvas);
+    if (!gl) return;
+
     try {
-      this.renderer = new THREE.WebGLRenderer({
-        canvas,
-        alpha: true,
-        antialias: false,
-      });
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      this.renderer.setClearColor(0x000000, 0);
-      this.supported = true;
+      this.quad = createQuadProgram(gl, vertexShader, fragmentShader);
     } catch {
       return;
     }
 
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
-    this.uniforms = {
-      uProgress: { value: 0 },
-      uTime: { value: 0 },
-      uResolution: { value: new THREE.Vector2() },
-    };
-
-    const geometry = new THREE.PlaneGeometry(2, 2);
-    const material = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms: this.uniforms,
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
+    this.gl = gl;
+    this.supported = true;
+    // the transition is purely decorative - if the GPU drops the context,
+    // just swap panels without it from then on
+    canvas.addEventListener("webglcontextlost", () => {
+      this.supported = false;
     });
-
-    this.scene.add(new THREE.Mesh(geometry, material));
-
-    this._resize();
-    window.addEventListener("resize", () => this._resize());
-  }
-
-  _resize() {
-    if (!this.supported) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const width = Math.max(rect.width, 1);
-    const height = Math.max(rect.height, 1);
-    this.renderer.setSize(width, height, false);
-    this.uniforms.uResolution.value.set(width, height);
   }
 
   play(onMidpoint) {
@@ -62,6 +33,15 @@ export class SectionTransition {
       return Promise.resolve();
     }
 
+    const { gl, quad, canvas } = this;
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(rect.width, 1);
+    const height = Math.max(rect.height, 1);
+    sizeCanvas(canvas, width, height);
+
+    quad.use();
+    gl.uniform2f(quad.uniform("uResolution"), width, height);
+
     return new Promise((resolve) => {
       const start = performance.now();
       let swapped = false;
@@ -69,9 +49,12 @@ export class SectionTransition {
       const tick = (now) => {
         const elapsed = now - start;
         const t = Math.min(elapsed / DURATION_MS, 1);
-        this.uniforms.uProgress.value = t;
-        this.uniforms.uTime.value = elapsed / 1000;
-        this.renderer.render(this.scene, this.camera);
+
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        quad.use();
+        gl.uniform1f(quad.uniform("uProgress"), t);
+        gl.uniform1f(quad.uniform("uTime"), elapsed / 1000);
+        quad.draw();
 
         if (!swapped && t >= 0.5) {
           swapped = true;
@@ -81,7 +64,8 @@ export class SectionTransition {
         if (t < 1) {
           requestAnimationFrame(tick);
         } else {
-          this.renderer.clear();
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT);
           resolve();
         }
       };
