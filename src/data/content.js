@@ -34,6 +34,28 @@ export const content = {
     },
   ],
   projets: {
+    apps: [
+      {
+        name: "Lotpix",
+        type: "Application desktop · Rust",
+        year: "2026",
+        description: "Optimiseur d'images par lot pour Windows et Linux : conversion, compression et redimensionnement (WebP, AVIF, JPEG, PNG).",
+        links: [
+          { label: "yoanmarchal.github.io/lotpix", href: "https://yoanmarchal.github.io/lotpix/" },
+          { label: "github.com/yoanmarchal/lotpix", href: "https://github.com/yoanmarchal/lotpix" },
+        ],
+      },
+      {
+        name: "VillageCraft",
+        type: "Application web 3D · React + Three.js",
+        year: "2026",
+        description: "Construction de villages en voxels dans le navigateur : murs, toits, arches et tours prennent forme selon les blocs placés autour.",
+        links: [
+          { label: "yoanmarchal.github.io/villagecraft", href: "https://yoanmarchal.github.io/villagecraft/" },
+          { label: "github.com/yoanmarchal/villagecraft", href: "https://github.com/yoanmarchal/villagecraft" },
+        ],
+      },
+    ],
     note: "Sélection de projets clients réalisés en indépendant, 2009 — 2019. Les projets menés depuis chez RnD restent soumis à confidentialité.",
     list: [
       { name: "CFA Limousin", type: "WordPress + thème custom", year: "2019" },
