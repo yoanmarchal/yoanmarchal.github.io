@@ -9,6 +9,7 @@ import { renderContact } from "./ui/sections/Contact.js";
 import { ROUTES, ROUTE_LABELS, getCurrentRoute, navigateTo, onRouteChange } from "./router.js";
 import { SectionTransition } from "./scene/SectionTransition.js";
 import { TextWarpLayer } from "./scene/TextWarpLayer.js";
+import { initResponsiveCurvature } from "./scene/curvature.js";
 import { animateReveal, scrambleReveal } from "./ui/scrambleReveal.js";
 import { createPrompt } from "./ui/Prompt.js";
 
@@ -117,7 +118,12 @@ function buildShell() {
 
   // adds .crt-warp-active to `inner` itself once WebGL is up (and removes
   // it again if the context is ever lost)
-  new TextWarpLayer(textWarpCanvas, inner);
+  const textWarp = new TextWarpLayer(textWarpCanvas, inner);
+  initResponsiveCurvature(textWarp);
+
+  if (import.meta.env.DEV) {
+    import("./dev/curvatureTuner.js").then(({ initCurvatureTuner }) => initCurvatureTuner(textWarp));
+  }
 
   return { inner, panelsWrap, transitionCanvas };
 }

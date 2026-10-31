@@ -41,6 +41,7 @@ function noscriptFallback() {
       <h2>Expérience</h2>
       <ul>${experience.map((j) => `<li>${e(j.role)} — ${e(j.company)} (${e(j.meta)})</li>`).join("")}</ul>
       <h2>Projets</h2>
+      <ul>${projets.apps.map((a) => `<li>${e(a.name)} — ${e(a.type)} (${e(a.year)}) : ${e(a.description)} ${a.links.map((l) => `<a href="${e(l.href)}">${e(l.label)}</a>`).join(" · ")}</li>`).join("")}</ul>
       <p>${e(projets.note)}</p>
       <ul>${projets.list.map((p) => `<li>${e(p.name)} — ${e(p.type)}${p.year ? ` (${e(p.year)})` : ""}</li>`).join("")}</ul>
       <h2>Contact</h2>

@@ -130,6 +130,7 @@ export class TextWarpLayer {
     this.supported = false;
     this._width = 0;
     this._height = 0;
+    this._strength = STRENGTH;
 
     this.mirror = document.createElement("canvas");
     this.mirrorCtx = this.mirror.getContext("2d");
@@ -179,7 +180,7 @@ export class TextWarpLayer {
 
     quad.use();
     gl.uniform1i(quad.uniform("uTexture"), 0);
-    gl.uniform1f(quad.uniform("uStrength"), STRENGTH);
+    gl.uniform1f(quad.uniform("uStrength"), this._strength);
 
     // Mobile browsers routinely drop WebGL contexts (backgrounded tab, GPU
     // reset). Without handling it the real text would stay invisible over
@@ -299,6 +300,17 @@ export class TextWarpLayer {
     this._height = height;
   }
 
+  // Called by initResponsiveCurvature and the dev curvature tuner (see
+  // src/dev/curvatureTuner.js). Stored on the instance so it survives
+  // _rebuild setting up a new context from scratch.
+  setStrength(value) {
+    this._strength = value;
+    if (!this.supported) return;
+    this.quad.use();
+    this.gl.uniform1f(this.quad.uniform("uStrength"), value);
+    this.invalidate();
+  }
+
   _onWindowResize() {
     clearTimeout(this._resizeSettleTimer);
     this._resizeSettleTimer = setTimeout(() => {
@@ -379,7 +391,7 @@ export class TextWarpLayer {
 
       const centerX = trueLeft - originRect.left + iRect.width / 2;
       const centerY = trueTop - originRect.top + iRect.height / 2;
-      const shaderOffset = computeWarpOffsetPx(centerX, centerY, this._width, this._height, STRENGTH);
+      const shaderOffset = computeWarpOffsetPx(centerX, centerY, this._width, this._height, this._strength);
       updates.push([interactiveEl, { dx: -shaderOffset.dx, dy: -shaderOffset.dy }]);
     }
 

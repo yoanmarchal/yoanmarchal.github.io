@@ -44,6 +44,14 @@ html {
   html {
     font-size: 100%;
   }
+
+  .screen-inner {
+    /* the desktop clamp's horizontal floor (3rem) never actually shrinks
+       below that on phone-width viewports (7vw only overtakes it past
+       ~685px), eating a quarter of the screen width in padding alone -
+       so mobile gets its own, smaller clamp instead of inheriting it. */
+    padding: clamp(1.2rem, 4vh, 2rem) clamp(1rem, 5vw, 1.6rem);
+  }
 }
 
 body {
@@ -458,6 +466,14 @@ body {
   opacity: 0.85;
 }
 
+.projets-heading {
+  margin: 1.4rem 0 0.8rem;
+  font-size: 0.8rem;
+  font-weight: normal;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+}
+
 .projets-list {
   list-style: none;
   margin: 1rem 0 0;
@@ -490,6 +506,40 @@ body {
   opacity: 0.6;
   font-size: 0.8rem;
   white-space: nowrap;
+}
+
+.projets-desc,
+.projets-links {
+  grid-column: 2 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.projets-desc {
+  max-width: 68ch;
+  opacity: 0.75;
+}
+
+.projets-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.5rem;
+}
+
+.projets-links a {
+  /* inline-block so the hit-box compensation transform applies */
+  display: inline-block;
+  color: var(--accent);
+  text-decoration-color: rgba(255, 176, 0, 0.4);
+}
+
+.projets-links a:hover {
+  text-decoration-color: currentColor;
+}
+
+.projets-links a:focus-visible {
+  text-decoration: none;
 }
 
 @media (max-width: 640px) {
