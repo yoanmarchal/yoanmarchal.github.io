@@ -14,9 +14,13 @@ export function renderProjets() {
         <span class="projets-name">${escapeHtml(app.name)}</span>
         <span class="projets-meta">${escapeHtml(app.type)}</span>
         <p class="projets-desc">${escapeHtml(app.description)}</p>
-        <p class="projets-links">
+        ${
+          app.links.length
+            ? `<p class="projets-links">
           ${app.links.map((link) => `<a href="${escapeHtml(link.href)}" target="_blank" rel="noopener">${escapeHtml(link.label)}</a>`).join("")}
-        </p>
+        </p>`
+            : ""
+        }
       </li>`
     )
     .join("");

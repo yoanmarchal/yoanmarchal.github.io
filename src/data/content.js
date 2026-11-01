@@ -55,6 +55,24 @@ export const content = {
           { label: "github.com/yoanmarchal/villagecraft", href: "https://github.com/yoanmarchal/villagecraft" },
         ],
       },
+      {
+        name: "CarbuCheap",
+        type: "Application Android · Kotlin",
+        year: "2026",
+        description: "Localisation des stations-service les moins chères à proximité, à partir des données officielles sur les prix des carburants.",
+        links: [
+          { label: "yoanmarchal.github.io/CarbuCheap", href: "https://yoanmarchal.github.io/CarbuCheap/" },
+          { label: "github.com/yoanmarchal/CarbuCheap", href: "https://github.com/yoanmarchal/CarbuCheap" },
+          { label: "Google Play", href: "https://play.google.com/store/apps/details?id=com.ym.carbucheap" },
+        ],
+      },
+      {
+        name: "Popster",
+        type: "Jeu Android · Kotlin",
+        year: "2025",
+        description: "Jeu de réflexes où il faut éclater des bulles colorées, avec trois modes : classique, contre-la-montre et survie.",
+        links: [],
+      },
     ],
     note: "Sélection de projets clients réalisés en indépendant, 2009 — 2019. Les projets menés depuis chez RnD restent soumis à confidentialité.",
     list: [
