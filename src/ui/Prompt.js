@@ -1,26 +1,69 @@
 import { ROUTES, ROUTE_LABELS, getCurrentRoute, navigateTo } from "../router.js";
+import { COMMANDS, COMMAND_NAMES } from "./shell.js";
 
 const CURSOR_BLINK_MS = 530;
-const MESSAGE_MS = 2500;
-const PLACEHOLDER = "tapez une section · tab pour compléter";
+const PLACEHOLDER = "tapez help ou une section · tab pour compléter";
+// scrollback kept above the prompt line - older lines scroll off the top
+const MAX_OUTPUT_LINES = 60;
+const MAX_HISTORY = 50;
+// offered on an empty line, next to the sections
+const EMPTY_LINE_COMMANDS = ["help"];
 
 // accent- and case-insensitive, so "compé" matches "competences"; NFD keeps
-// one base letter per accented one, so lengths line up with the route ids
+// one base letter per accented one, so lengths line up with the raw value
+// and positions found in the normalized text can slice the raw one
 function normalize(text) {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
-// "projets", "cd projets" and "4" all resolve to the projets route
-function parseQuery(value) {
-  return normalize(value.trimStart()).replace(/^cd\s+/, "");
-}
-
-function findMatches(query) {
+function findRoutes(query) {
   if (/^[1-9]$/.test(query)) {
     const route = ROUTES[Number(query) - 1];
     return route ? [route] : [];
   }
-  return ROUTES.filter((route) => route.startsWith(query.trim()));
+  return ROUTES.filter((route) => route.startsWith(query));
+}
+
+// Two kinds of line:
+// - "word": a single word being typed - a section ("projets", "4") or a
+//   command name; `matches` are both
+// - "arg": a command followed by a space ("theme am", "cd pro"); `matches`
+//   are that command's argument completions
+// `typed` is the (normalized) word being completed, `prefix` the raw text
+// before it, `rawArg` the argument as typed (for `echo`).
+function parseLine(value) {
+  const lead = value.length - value.trimStart().length;
+  const query = normalize(value.slice(lead));
+
+  const command = query.match(/^(\S+)\s+/);
+  if (command) {
+    const name = command[1];
+    const typed = query.slice(command[0].length).trim();
+    const candidates = COMMANDS[name]?.args?.() ?? [];
+    return {
+      kind: "arg",
+      command: name,
+      typed,
+      prefix: value.slice(0, lead + command[0].length),
+      rawArg: value.slice(lead + command[0].length).trim(),
+      matches: /\s/.test(typed) ? [] : candidates.filter((candidate) => candidate.startsWith(typed)),
+    };
+  }
+
+  const typed = query.trim();
+  let matches;
+  if (!typed) matches = [...ROUTES, ...EMPTY_LINE_COMMANDS];
+  else if (/^[1-9]$/.test(typed)) matches = findRoutes(typed);
+  else matches = [...findRoutes(typed), ...COMMAND_NAMES.filter((name) => name.startsWith(typed))];
+  return { kind: "word", typed, prefix: value.slice(0, lead), matches };
+}
+
+function suggestionLabel(line, item) {
+  if (line.kind === "word") {
+    return ROUTES.includes(item) ? ROUTE_LABELS[item] : `Commande ${item} : ${COMMANDS[item].desc}`;
+  }
+  if (ROUTES.includes(item)) return ROUTE_LABELS[item];
+  return `${line.command} ${item}`;
 }
 
 function span(className) {
@@ -35,19 +78,29 @@ function span(className) {
  * block cursor and inline completion re-drawn as plain spans next to it -
  * TextWarpLayer only mirrors element text, never an input's value.
  *
- * Typing filters the section names shown below the line; Tab / → accepts
- * the inline completion, ↑/↓ cycle through the matches, Enter goes to the
- * highlighted one, Escape clears. Typing a letter anywhere on the page
- * focuses it.
+ * It's a small shell: a section name navigates, and the commands in
+ * shell.js (help, ls, cd, theme, whoami, exit…) print their output above
+ * the line, terminal-style, until the next section change or `clear`.
+ * Tab / → accepts the inline completion, ↑/↓ cycle through the matches -
+ * or through the command history, from an empty line - Enter runs, Escape
+ * clears. Typing a letter anywhere on the page focuses it.
+ *
+ * `powerOff` is called by `exit`.
  *
  * Returns { element, show, hide }. It starts hidden; main.js shows it once
  * a section has finished revealing, so it reads as the terminal waiting for
  * input after printing.
  */
-export function createPrompt() {
+export function createPrompt({ powerOff = () => {} } = {}) {
   const element = document.createElement("div");
   element.className = "prompt";
   element.hidden = true;
+
+  // the scrollback: each run command's echo + its output. A log region, so
+  // the output is announced; the echo is aria-hidden (the user just typed it)
+  const output = document.createElement("div");
+  output.className = "prompt-output";
+  output.setAttribute("role", "log");
 
   const line = document.createElement("p");
   line.className = "prompt-line";
@@ -78,7 +131,7 @@ export function createPrompt() {
   input.spellcheck = false;
   input.setAttribute("autocapitalize", "off");
   input.setAttribute("enterkeyhint", "go");
-  input.setAttribute("aria-label", "Aller à une section");
+  input.setAttribute("aria-label", "Ligne de commande");
   input.setAttribute("aria-describedby", "prompt-help");
 
   field.append(before, cursor, after, ghost, input);
@@ -87,7 +140,7 @@ export function createPrompt() {
   const help = document.createElement("p");
   help.id = "prompt-help";
   help.className = "sr-only";
-  help.textContent = `Tapez le nom d'une section (${ROUTES.join(", ")}), Tab pour compléter, Entrée pour y aller.`;
+  help.textContent = `Tapez le nom d'une section (${ROUTES.join(", ")}) ou une commande, help pour la liste. Tab pour compléter, Entrée pour exécuter, flèche haut sur une ligne vide pour l'historique.`;
 
   // mirrors the completion list for the eye; the buttons are also a
   // touch-friendly way to pick a section
@@ -98,50 +151,160 @@ export function createPrompt() {
   // blur would hide the list before the click lands
   suggestions.addEventListener("pointerdown", (event) => event.preventDefault());
 
-  const message = document.createElement("p");
-  message.className = "prompt-message";
-  message.setAttribute("role", "status");
+  element.append(output, line, suggestions, help);
 
-  element.append(line, suggestions, message, help);
-
-  let matches = [...ROUTES];
+  let parsed = parseLine("");
+  let matches = parsed.matches;
   let activeIndex = 0;
-  let messageTimer;
+  // ↑/↓ picked a suggestion since the last keystroke - Enter then uses it
+  // even where the typed text alone would mean something else
+  let navigated = false;
   let focusOnShow = false;
 
-  function showMessage(text) {
-    message.textContent = text;
-    clearTimeout(messageTimer);
-    messageTimer = setTimeout(() => {
-      message.textContent = "";
-    }, MESSAGE_MS);
+  const history = [];
+  // == history.length while not browsing it
+  let historyIndex = 0;
+
+  function print(lines, className = "prompt-out") {
+    for (const text of lines) {
+      const p = document.createElement("p");
+      p.className = className;
+      p.textContent = text;
+      if (className === "prompt-echo") p.setAttribute("aria-hidden", "true");
+      output.append(p);
+    }
+    while (output.childElementCount > MAX_OUTPUT_LINES) output.firstElementChild.remove();
+    keepInView();
+  }
+
+  // Scrolls .screen-inner just enough for the prompt line - and the
+  // suggestions under it, when shown - to sit above its bottom padding: the
+  // band where the glass curves away and the vignette darkens. Done by hand
+  // rather than with scrollIntoView, which would also scroll the
+  // overflow:hidden tube around it.
+  function keepInView() {
+    const scroller = element.closest(".screen-inner");
+    if (!scroller || element.hidden) return;
+    const target = suggestions.hidden ? line : suggestions;
+    const margin = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
+    const overflow = target.getBoundingClientRect().bottom - (scroller.getBoundingClientRect().bottom - margin);
+    if (overflow > 0) scroller.scrollTop += Math.ceil(overflow);
+  }
+
+  // focus without the browser's own scroll-into-view (see keepInView)
+  function focusInput() {
+    input.focus({ preventScroll: true });
+    keepInView();
+  }
+
+  function clearOutput() {
+    output.replaceChildren();
   }
 
   function go(route) {
-    input.value = "";
-    if (route === getCurrentRoute()) {
-      update();
-      return;
-    }
+    if (route === getCurrentRoute()) return;
     // the new panel re-creates the prompt's position; bring focus back to
     // it once it reappears so the user can keep typing
     focusOnShow = true;
-    showMessage("");
     navigateTo(route);
+  }
+
+  const ctx = { go, clear: clearOutput, history, powerOff };
+
+  // a new line: the completion state starts over with it
+  function setValue(value) {
+    input.value = value;
+    input.setSelectionRange(value.length, value.length);
+    activeIndex = 0;
+    navigated = false;
+    update();
+  }
+
+  function remember(command) {
+    if (history[history.length - 1] !== command) history.push(command);
+    if (history.length > MAX_HISTORY) history.shift();
+    historyIndex = history.length;
+  }
+
+  function run(name, arg, rawArg, echo) {
+    print([`> ${echo}`], "prompt-echo");
+    const lines = COMMANDS[name].run(arg, ctx, rawArg);
+    if (lines) print(lines);
+  }
+
+  // a suggestion button: a section navigates, a command taking an argument
+  // is filled in for it, anything else runs
+  function pick(item) {
+    if (parsed.kind === "arg") {
+      run(parsed.command, item, item, `${parsed.command} ${item}`);
+      remember(`${parsed.command} ${item}`);
+      setValue("");
+    } else if (ROUTES.includes(item)) {
+      setValue("");
+      go(item);
+    } else if (COMMANDS[item].args) {
+      setValue(`${item} `);
+      focusInput();
+    } else {
+      run(item, "", "", item);
+      remember(item);
+      setValue("");
+    }
+  }
+
+  function submit() {
+    const raw = input.value.trim();
+    if (!raw) {
+      // an empty line can still have a suggestion picked with ↑/↓
+      const picked = matches[activeIndex];
+      if (navigated && picked) pick(picked);
+      return;
+    }
+    const current = parseLine(input.value);
+    // read before the line is cleared, which resets the completion state
+    const active = current.matches[activeIndex];
+    const usedArrows = navigated;
+    // what actually ran: "theme" + ↓ to "ambre" is remembered as "theme ambre"
+    const ran = current.kind === "arg" && usedArrows && active ? `${current.prefix.trim()} ${active}` : raw;
+    remember(ran);
+    setValue("");
+
+    if (current.kind === "arg") {
+      if (!COMMANDS[current.command]) {
+        print([`> ${raw}`], "prompt-echo");
+        print([`${current.command} : commande introuvable — tapez help`]);
+        return;
+      }
+      const arg = usedArrows && active ? active : current.typed;
+      run(current.command, arg, current.rawArg, ran);
+      return;
+    }
+
+    // an exact command name wins (including the hidden ones), then a
+    // section, then whatever the completion is pointing at
+    const target = COMMANDS[current.typed] ? current.typed : active;
+    if (!target) {
+      print([`> ${raw}`], "prompt-echo");
+      print([`${current.typed} : commande introuvable — tapez help`]);
+    } else if (ROUTES.includes(target) && !COMMANDS[current.typed]) {
+      go(target);
+    } else {
+      run(target, "", "", raw);
+    }
   }
 
   function renderSuggestions(focused) {
     suggestions.hidden = !focused || matches.length === 0;
     suggestions.replaceChildren(
-      ...matches.map((route, index) => {
+      ...matches.map((match, index) => {
         const item = document.createElement("li");
         const button = document.createElement("button");
         button.type = "button";
         button.tabIndex = -1;
-        button.textContent = route;
+        button.textContent = match;
         button.classList.toggle("is-active", index === activeIndex);
-        button.setAttribute("aria-label", ROUTE_LABELS[route]);
-        button.addEventListener("click", () => go(route));
+        button.setAttribute("aria-label", suggestionLabel(parsed, match));
+        button.addEventListener("click", () => pick(match));
         item.append(button);
         return item;
       })
@@ -153,8 +316,8 @@ export function createPrompt() {
     const focused = document.activeElement === input;
     const caretAt = input.selectionEnd ?? value.length;
 
-    const query = parseQuery(value);
-    matches = findMatches(query);
+    parsed = parseLine(value);
+    matches = parsed.matches;
     activeIndex = Math.min(activeIndex, Math.max(matches.length - 1, 0));
 
     let afterText = value.slice(caretAt);
@@ -162,7 +325,7 @@ export function createPrompt() {
 
     // inline completion only while typing at the end of a prefix match
     const active = matches[activeIndex];
-    const typedWord = query.trim();
+    const typedWord = parsed.typed;
     if (!value) {
       ghostText = focused ? "" : PLACEHOLDER;
     } else if (active && caretAt === value.length && typedWord && active.startsWith(typedWord)) {
@@ -191,22 +354,29 @@ export function createPrompt() {
 
     element.classList.toggle("is-focused", focused);
     renderSuggestions(focused);
+    if (focused) keepInView();
   }
 
   function complete() {
     const active = matches[activeIndex];
-    if (!active || !input.value.trim()) return false;
-    const prefix = input.value.match(/^\s*(cd\s+)?/i)[0];
-    if (input.value === prefix + active) return false;
-    input.value = prefix + active;
-    input.setSelectionRange(input.value.length, input.value.length);
-    update();
+    if (!parsed.typed || !active) return false;
+    // a command that takes an argument gets its trailing space, ready for it
+    const space = parsed.kind === "word" && COMMANDS[active]?.args ? " " : "";
+    const completed = parsed.prefix + active + space;
+    if (input.value === completed) return false;
+    setValue(completed);
     return true;
+  }
+
+  function browseHistory(step) {
+    historyIndex = Math.min(Math.max(historyIndex + step, 0), history.length);
+    setValue(history[historyIndex] ?? "");
   }
 
   input.addEventListener("input", () => {
     activeIndex = 0;
-    message.textContent = "";
+    navigated = false;
+    historyIndex = history.length;
     cursor.classList.remove("is-off");
     update();
   });
@@ -218,19 +388,24 @@ export function createPrompt() {
       if (input.selectionEnd === input.value.length && complete()) event.preventDefault();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (matches.length === 0) return;
       const step = event.key === "ArrowDown" ? 1 : -1;
+      // history from an empty line, and for as long as it's being browsed
+      // (not once ↑/↓ has started picking among the suggestions)
+      const browsing = historyIndex < history.length;
+      if (history.length && !navigated && (browsing || (!input.value && step < 0))) {
+        browseHistory(step);
+        return;
+      }
+      if (matches.length === 0) return;
+      navigated = true;
       activeIndex = (activeIndex + step + matches.length) % matches.length;
       update();
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (!input.value.trim()) return;
-      const route = matches[activeIndex];
-      if (route) go(route);
-      else showMessage(`section introuvable : ${input.value.trim()} — essayez ${ROUTES.join(", ")}`);
+      submit();
     } else if (event.key === "Escape") {
-      input.value = "";
-      update();
+      historyIndex = history.length;
+      setValue("");
       input.blur();
     }
   });
@@ -249,7 +424,7 @@ export function createPrompt() {
     if (event.key.length !== 1 || !/\p{L}/u.test(event.key)) return;
     const target = event.target;
     if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
-    input.focus();
+    focusInput();
   });
 
   if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -267,13 +442,15 @@ export function createPrompt() {
       element.hidden = false;
       if (focusOnShow) {
         focusOnShow = false;
-        input.focus();
+        focusInput();
       }
       update();
     },
+    // a new section is a fresh screen: the scrollback goes with the old one
     hide() {
       element.hidden = true;
       suggestions.hidden = true;
+      clearOutput();
     },
   };
 }

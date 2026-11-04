@@ -7,11 +7,12 @@ import { renderExperience } from "./ui/sections/Experience.js";
 import { renderProjets } from "./ui/sections/Projets.js";
 import { renderContact } from "./ui/sections/Contact.js";
 import { ROUTES, ROUTE_LABELS, getCurrentRoute, navigateTo, onRouteChange } from "./router.js";
-import { SectionTransition } from "./scene/SectionTransition.js";
 import { TextWarpLayer } from "./scene/TextWarpLayer.js";
 import { initResponsiveCurvature } from "./scene/curvature.js";
 import { animateReveal, scrambleReveal } from "./ui/scrambleReveal.js";
 import { createPrompt } from "./ui/Prompt.js";
+import { initTheme, onThemeChange } from "./ui/theme.js";
+import { createCrtPower } from "./ui/crtPower.js";
 
 const SECTION_RENDERERS = {
   profil: renderProfil,
@@ -99,10 +100,6 @@ function buildShell() {
   crtGlass.className = "crt-glass";
   crtGlass.setAttribute("aria-hidden", "true");
 
-  const transitionCanvas = document.createElement("canvas");
-  transitionCanvas.className = "transition-canvas";
-  transitionCanvas.setAttribute("aria-hidden", "true");
-
   const textWarpCanvas = document.createElement("canvas");
   textWarpCanvas.className = "text-warp-canvas";
   textWarpCanvas.setAttribute("aria-hidden", "true");
@@ -113,19 +110,38 @@ function buildShell() {
   const panelsWrap = document.createElement("div");
   panelsWrap.className = "panels";
 
-  crtScreen.append(crtOverlay, transitionCanvas, textWarpCanvas, crtFlicker, crtGlass, inner);
+  crtScreen.append(crtOverlay, textWarpCanvas, crtFlicker, crtGlass, inner);
   app.append(crtScreen);
 
   // adds .crt-warp-active to `inner` itself once WebGL is up (and removes
   // it again if the context is ever lost)
   const textWarp = new TextWarpLayer(textWarpCanvas, inner);
   initResponsiveCurvature(textWarp);
+  // a theme change degausses the tube (not the initial theme, applied
+  // before anything is on screen)
+  let initialTheme = true;
+  onThemeChange(({ phosphor }) => {
+    textWarp.setPhosphor(phosphor);
+    if (!initialTheme && !prefersReducedMotion()) textWarp.playDegauss();
+    initialTheme = false;
+  });
 
   if (import.meta.env.DEV) {
     import("./dev/curvatureTuner.js").then(({ initCurvatureTuner }) => initCurvatureTuner(textWarp));
   }
 
-  return { inner, panelsWrap, transitionCanvas };
+  const power = createCrtPower(crtScreen);
+
+  return { inner, panelsWrap, textWarp, power, crtFlicker };
+}
+
+// The boot types its first lines right away - waiting (briefly) for the
+// bitmap font keeps them from re-flowing in a fallback font mid-sequence.
+const FONT_WAIT_MS = 1500;
+
+function waitForFont() {
+  if (!document.fonts?.load) return Promise.resolve();
+  return Promise.race([document.fonts.load('1rem "Departure Mono"').catch(() => {}), wait(FONT_WAIT_MS)]);
 }
 
 function buildHero() {
@@ -323,12 +339,14 @@ function renderPanel(route, panelsWrap, prompt) {
   prompt.hide();
   panelsWrap.replaceChildren(section, prompt.element);
 
+  // before the reveal starts: under reduced motion it completes (and the
+  // prompt, if it was in use, takes focus back) synchronously
+  const heading = section.querySelector("h2");
+  if (heading) heading.focus();
+
   const onComplete = () => prompt.show();
   cancelReveal =
     route === "competences" ? revealCompetences(section, onComplete) : animateReveal(section, { onComplete });
-
-  const heading = section.querySelector("h2");
-  if (heading) heading.focus();
 
   document.title = `${content.hero.name} — ${ROUTE_LABELS[route]}`;
 }
@@ -387,9 +405,16 @@ function bindShortcuts() {
 }
 
 async function init() {
-  const { inner, panelsWrap, transitionCanvas } = buildShell();
-  const transition = new SectionTransition(transitionCanvas);
-  const prompt = createPrompt();
+  // before the shell is built, so the stored theme is the first one painted
+  initTheme();
+  const { inner, panelsWrap, textWarp, power, crtFlicker } = buildShell();
+  // the tube switches on (dot → line → picture) before anything is typed;
+  // started in the same task as the shell is built, so the screen's first
+  // paint is already "off"
+  const poweredOn = power.start().then(() => crtFlicker.classList.add("is-starting"));
+  const prompt = createPrompt({ powerOff: power.powerOff });
+
+  await Promise.all([waitForFont(), poweredOn]);
 
   let { nav, currentRoute } = await boot(inner, panelsWrap, prompt);
 
@@ -413,7 +438,9 @@ async function init() {
       if (prefersReducedMotion()) {
         renderPanel(next, panelsWrap, prompt);
       } else {
-        await transition.play(() => renderPanel(next, panelsWrap, prompt));
+        // the section loses sync and goes dark; the new one is swapped in
+        // at the darkest moment, then prints itself in
+        await textWarp.playGlitch(() => renderPanel(next, panelsWrap, prompt), panelsWrap);
       }
     }
 

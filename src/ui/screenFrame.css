@@ -2,19 +2,56 @@
   box-sizing: border-box;
 }
 
+/* Departure Mono (SIL OFL, see src/fonts/DepartureMono-OFL.txt) - a pixel
+   font, so the text reads as a terminal's bitmap glyphs. Regular only: the
+   headings below are set font-weight normal rather than faux-bolded. */
+@font-face {
+  font-family: "Departure Mono";
+  src: url("../fonts/DepartureMono-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Phosphor themes, switched with the prompt's `theme` command (data-theme
+   is set on <html> by src/ui/theme.js, which also holds the matching tint
+   for the WebGL layers):
+   --fg      regular text
+   --accent  active tab, links, cursor - on the colored tubes it's the same
+             hue driven brighter, like a real monochrome screen's "bold"
+   --hot     focused element, the brightest the tube goes
+   --screen  the unlit glass
+   --glow    light spilling around the tube */
 :root {
-  /* single phosphor accent (active tab, links, cursor) on the otherwise
-     monochrome screen - swap for green (#33ff66) or white to change the
-     tube's character */
+  --fg: #f2f2f2;
   --accent: #ffb000;
+  --hot: #ffffff;
+  --screen: #0a0a0a;
+  --glow: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="ambre"] {
+  --fg: #f0a020;
+  --accent: #ffc53d;
+  --hot: #fff0c0;
+  --screen: #0d0a05;
+  --glow: rgba(255, 170, 40, 0.12);
+}
+
+:root[data-theme="vert"] {
+  --fg: #3ad16a;
+  --accent: #6dff8f;
+  --hot: #e0ffe8;
+  --screen: #050c07;
+  --glow: rgba(60, 220, 110, 0.12);
 }
 
 a:focus-visible,
 button:focus-visible {
   outline: none;
-  color: #ffffff;
-  text-shadow: 0 0 6px rgba(242, 242, 242, 0.85);
-  box-shadow: 0 1px 0 0 rgba(242, 242, 242, 0.85);
+  color: var(--hot);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--hot) 85%, transparent);
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--hot) 85%, transparent);
 }
 
 /* forced-colors (e.g. Windows High Contrast) ignores box-shadow/text-shadow,
@@ -50,14 +87,15 @@ html {
        below that on phone-width viewports (7vw only overtakes it past
        ~685px), eating a quarter of the screen width in padding alone -
        so mobile gets its own, smaller clamp instead of inheriting it. */
-    padding: clamp(1.2rem, 4vh, 2rem) clamp(1rem, 5vw, 1.6rem);
+    --screen-pad-y: clamp(1.2rem, 4vh, 2rem);
+    padding: var(--screen-pad-y) clamp(1rem, 5vw, 1.6rem);
   }
 }
 
 body {
   background: radial-gradient(ellipse at center, #1a1a1a 0%, #0d0d0d 70%, #050505 100%);
-  color: #f2f2f2;
-  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, "Courier New", monospace;
+  color: var(--fg);
+  font-family: "Departure Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, "Courier New", monospace;
   letter-spacing: 0.02em;
   display: flex;
   align-items: center;
@@ -90,10 +128,10 @@ body {
      push the bottom of the tube off-screen there */
   height: 100dvh;
   margin: 0;
-  background: #0a0a0a;
+  background: var(--screen);
   clip-path: url(#crtClip);
   filter:
-    drop-shadow(0 0 50px rgba(255, 255, 255, 0.1))
+    drop-shadow(0 0 50px var(--glow))
     drop-shadow(0 20px 70px rgba(0, 0, 0, 0.6));
   box-shadow:
     inset 0 0 90px rgba(0, 0, 0, 0.9),
@@ -109,15 +147,16 @@ body {
   flex-direction: column;
   gap: 1.4rem;
   clip-path: url(#crtClip);
-  padding: clamp(2.4rem, 6vh, 4.2rem) clamp(3rem, 7vw, 5.5rem);
+  --screen-pad-y: clamp(2.4rem, 6vh, 4.2rem);
+  padding: var(--screen-pad-y) clamp(3rem, 7vw, 5.5rem);
   /* horizontal always hidden - overflow:auto would compute scrollable
      width from the hero's transformed (pre-FLIP) position while it's
      mid-transition, briefly showing a horizontal scrollbar */
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
-  text-shadow: 0 0 4px rgba(255, 255, 255, 0.35);
+  scrollbar-color: color-mix(in srgb, var(--fg) 25%, transparent) transparent;
+  text-shadow: 0 0 4px color-mix(in srgb, var(--fg) 35%, transparent);
   /* the visible text is a warped WebGL stand-in (see TextWarpLayer) -
      the real DOM text underneath is invisible, so a native selection
      highlight would show up detached from what's actually on screen */
@@ -196,6 +235,14 @@ body {
   mix-blend-mode: multiply;
 }
 
+/* with the warp layer running, scanlines are drawn by textWarp.frag.glsl
+   in the warped space, so they bend with the text - these straight CSS
+   ones would cut across it at the edges. Kept only as the no-WebGL
+   fallback; the vignette stays either way. */
+.crt-screen:has(.crt-warp-active) .crt-overlay {
+  background: radial-gradient(ellipse 75% 70% at center, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.55) 78%, rgba(0, 0, 0, 0.9) 100%);
+}
+
 .crt-glass {
   position: absolute;
   inset: 0;
@@ -215,8 +262,12 @@ body {
   z-index: 6;
   pointer-events: none;
   background: rgba(255, 255, 255, 0.025);
-  /* power-on flicker, once - not a repeating tic. Runs on mount, so it
-     plays right as the screen appears, before the preloader text starts. */
+}
+
+/* power-on flicker, once - not a repeating tic. main.js adds the class once
+   the arrival power-on (src/ui/crtPower.js) has opened the picture, so the
+   tube "settles" as the preloader starts typing. */
+.crt-flicker.is-starting {
   animation: flicker-startup 1.6s ease-out forwards;
 }
 
@@ -235,13 +286,51 @@ body {
   100% { opacity: 1; }
 }
 
-.transition-canvas {
+/* --- Power off/on (src/ui/crtPower.js) --- */
+
+/* the unlit glass: darkens the screen while the tube is off */
+.crt-power {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 3;
   pointer-events: none;
+  background: rgba(0, 0, 0, 0.6);
+  opacity: 0;
+}
+
+/* the electron beam's line/dot as the picture collapses or opens up. The
+   glow is a filter on this unscaled wrapper, applied after the core's
+   scaleX - a box-shadow on the core would be squashed with it, turning the
+   dot's halo into a vertical streak */
+.crt-beam {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 50%;
+  z-index: 3;
+  height: 3px;
+  margin-top: -1.5px;
+  pointer-events: none;
+  filter:
+    drop-shadow(0 0 4px var(--hot))
+    drop-shadow(0 0 14px color-mix(in srgb, var(--fg) 70%, transparent));
+}
+
+.crt-beam-core {
   width: 100%;
   height: 100%;
+  border-radius: 2px;
+  background: var(--hot);
+  opacity: 0;
+}
+
+.crt-screen.is-powered-off .crt-power {
+  opacity: 1;
+}
+
+.crt-screen.is-powered-off .text-warp-canvas,
+.crt-screen.is-powered-off .screen-inner:not(.crt-warp-active) {
+  opacity: 0;
 }
 
 /* --- Boot preloader --- */
@@ -313,6 +402,7 @@ body {
   /* tight leading so the glyphs, not empty line-box space, reach the
      top/bottom of the block the logo is matched to */
   line-height: var(--hero-name-leading);
+  font-weight: normal;
   letter-spacing: 0.08em;
 }
 
@@ -399,6 +489,18 @@ body {
   min-height: 0;
 }
 
+/* .screen-inner's own bottom padding isn't part of its scrollable area, so
+   a long section would scroll its last line (the prompt) right down to the
+   edge, where the glass curves away and the vignette darkens. A spacer
+   after the content keeps the same gap at the end of the scroll - it has to
+   be content (not .panels' padding): .panels is shrunk to the screen
+   (min-height: 0) and long sections overflow it. */
+.panels::after {
+  content: "";
+  display: block;
+  height: var(--screen-pad-y);
+}
+
 .panel {
   padding-top: 1rem;
 }
@@ -412,6 +514,7 @@ body {
 .panel h2 {
   margin-top: 0;
   font-size: 1.1rem;
+  font-weight: normal;
   letter-spacing: 0.1em;
 }
 
@@ -489,7 +592,7 @@ body {
   align-items: baseline;
   gap: 0.2rem 1.2rem;
   padding-bottom: 0.35rem;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.15);
+  border-bottom: 1px dashed color-mix(in srgb, var(--fg) 15%, transparent);
   font-size: 0.9rem;
 }
 
@@ -531,7 +634,7 @@ body {
   /* inline-block so the hit-box compensation transform applies */
   display: inline-block;
   color: var(--accent);
-  text-decoration-color: rgba(255, 176, 0, 0.4);
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .projets-links a:hover {
@@ -560,6 +663,7 @@ article {
 article h3 {
   margin: 0 0 0.2em;
   font-size: 1rem;
+  font-weight: normal;
 }
 
 .meta {
@@ -573,7 +677,7 @@ article h3 {
   /* inline-block so the hit-box compensation transform applies */
   display: inline-block;
   color: var(--accent);
-  text-decoration-color: rgba(255, 176, 0, 0.4);
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .contact-email a:hover,
@@ -687,7 +791,7 @@ article h3 {
   position: absolute;
   inset: 0;
   text-align: center;
-  color: #0a0a0a;
+  color: var(--screen);
 }
 
 /* focused: the cursor turns accent - this is the prompt's focus indicator */
@@ -746,11 +850,31 @@ article h3 {
   color: var(--accent);
 }
 
-.prompt-message {
-  margin: 0.4rem 0 0;
-  padding-left: 2ch;
+/* the shell's scrollback above the prompt line */
+.prompt-output:empty {
+  display: none;
+}
+
+.prompt-output {
+  margin: 0 0 0.6rem;
   font-size: 0.8rem;
-  opacity: 0.6;
+  line-height: 1.5;
+}
+
+.prompt-output p {
+  margin: 0;
+  /* keeps the padded columns of help/neofetch - and lets TextWarpLayer's
+     per-character line measuring see the same spaces the canvas draws */
+  white-space: pre-wrap;
+}
+
+.prompt-echo {
+  opacity: 0.5;
+}
+
+.prompt-out {
+  padding-left: 2ch;
+  opacity: 0.85;
 }
 
 .boot-skip-hint {
@@ -778,9 +902,9 @@ article h3 {
 }
 
 .placeholder-note {
-  color: #ffffff;
+  color: var(--hot);
   border: 1px dashed currentColor;
-  border-color: rgba(255, 255, 255, 0.35);
+  border-color: color-mix(in srgb, var(--fg) 35%, transparent);
   opacity: 0.9;
   padding: 0.75em 1em;
   display: inline-block;
@@ -824,12 +948,12 @@ article h3 {
 }
 
 .scramble-char.is-scrambling {
-  color: #9a9a9a;
+  color: color-mix(in srgb, var(--fg) 60%, var(--screen));
   opacity: 0.75;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .crt-flicker {
+  .crt-flicker.is-starting {
     animation: none;
   }
 }

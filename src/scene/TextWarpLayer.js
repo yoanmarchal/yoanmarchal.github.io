@@ -4,6 +4,11 @@ import { MAX_PIXEL_RATIO, createQuadProgram, getWebGLContext, loseContext, sizeC
 
 const STRENGTH = 0.12;
 
+// Phosphor tint applied by the shader to neutral (white/grey) text until
+// main.js passes the current theme's (see src/ui/theme.js) - a slightly
+// cool white, like a P4 monochrome tube. Saturated colors keep their hue.
+const PHOSPHOR = [0.93, 0.97, 1.0];
+
 // Set on the source element while the warped stand-in is on screen - the
 // CSS hides the real glyphs only under it, so removing it (WebGL lost or
 // unsupported) instantly brings the plain DOM text back.
@@ -18,6 +23,11 @@ const RENDER_TAIL_MS = 50;
 const TRANSITION_TIMEOUT_MS = 3000;
 
 const MAX_CONTEXT_RECOVERIES = 3;
+
+// Section change: the panel loses sync, then the new one prints in
+const GLITCH_MS = 340;
+// Theme change: the degauss wobble
+const DEGAUSS_MS = 800;
 
 // Mirrors the fragment shader's displacement math: for an output pixel at
 // (centerX, centerY), the shader samples the source texture at
@@ -131,11 +141,15 @@ export class TextWarpLayer {
     this._width = 0;
     this._height = 0;
     this._strength = STRENGTH;
+    this._phosphor = PHOSPHOR;
 
     this.mirror = document.createElement("canvas");
     this.mirrorCtx = this.mirror.getContext("2d");
     this._hitOffsets = new WeakMap();
     this._runningTransitions = new Map();
+    // timed shader effects (glitch, degauss) - keyed by their uniform
+    this._effects = new Map();
+    this._glitchRegion = null;
     this._renderUntil = 0;
     this._rafId = 0;
     this._contextRecoveries = 0;
@@ -181,6 +195,7 @@ export class TextWarpLayer {
     quad.use();
     gl.uniform1i(quad.uniform("uTexture"), 0);
     gl.uniform1f(quad.uniform("uStrength"), this._strength);
+    gl.uniform3fv(quad.uniform("uPhosphor"), this._phosphor);
 
     // Mobile browsers routinely drop WebGL contexts (backgrounded tab, GPU
     // reset). Without handling it the real text would stay invisible over
@@ -198,7 +213,10 @@ export class TextWarpLayer {
     this.quad = quad;
     this.texture = texture;
 
-    if (this._width && this._height) sizeCanvas(this.canvas, this._width, this._height);
+    if (this._width && this._height) {
+      sizeCanvas(this.canvas, this._width, this._height);
+      gl.uniform2f(quad.uniform("uResolution"), this._width, this._height);
+    }
     return true;
   }
 
@@ -266,7 +284,7 @@ export class TextWarpLayer {
 
     this._render();
 
-    if (now < this._renderUntil || this._hasRunningTransitions(now)) {
+    if (now < this._renderUntil || this._hasRunningTransitions(now) || this._effects.size) {
       this._rafId = requestAnimationFrame(this._tick);
     }
   }
@@ -279,6 +297,10 @@ export class TextWarpLayer {
     const width = Math.max(rect.width, 1);
     const height = Math.max(rect.height, 1);
     if (width !== this._width || height !== this._height) this._resize(width, height);
+
+    // before the mirror is drawn: a glitch's midpoint swaps the DOM, which
+    // this same frame then shows (dimmed, at the glitch's peak)
+    this._updateEffects(performance.now(), rect);
 
     this._drawMirror(rect);
 
@@ -298,6 +320,8 @@ export class TextWarpLayer {
     sizeCanvas(this.canvas, width, height);
     this._width = width;
     this._height = height;
+    this.quad.use();
+    this.gl.uniform2f(this.quad.uniform("uResolution"), width, height);
   }
 
   // Called by initResponsiveCurvature and the dev curvature tuner (see
@@ -309,6 +333,91 @@ export class TextWarpLayer {
     this.quad.use();
     this.gl.uniform1f(this.quad.uniform("uStrength"), value);
     this.invalidate();
+  }
+
+  // `rgb` is a [r, g, b] triple in 0..1 - the color neutral text is tinted
+  // towards (see textWarp.frag.glsl). Stored like the strength so it
+  // survives a context rebuild.
+  setPhosphor(rgb) {
+    this._phosphor = rgb;
+    if (!this.supported) return;
+    this.quad.use();
+    this.gl.uniform3fv(this.quad.uniform("uPhosphor"), rgb);
+    this.invalidate();
+  }
+
+  /**
+   * Plays the section-change glitch over the part of the screen below
+   * `regionEl`'s top (the section, not the hero/nav above it), calling
+   * `onMidpoint` at its peak - when the picture is darkest - to swap the
+   * content underneath. Resolves once it's over. Without WebGL, just swaps.
+   */
+  playGlitch(onMidpoint, regionEl) {
+    this._glitchRegion = regionEl;
+    return this._play("uGlitch", GLITCH_MS, (t) => Math.sin(Math.PI * t) ** 0.6, onMidpoint);
+  }
+
+  /** The degauss wobble, for a theme change. */
+  playDegauss() {
+    return this._play("uDegauss", DEGAUSS_MS, (t) => (1 - t) ** 2);
+  }
+
+  _play(uniform, duration, envelope, onMidpoint = null) {
+    if (!this.supported) {
+      onMidpoint?.();
+      return Promise.resolve();
+    }
+    // a new one of the same kind replaces the running one (finishing it)
+    this._finishEffect(uniform);
+    return new Promise((resolve) => {
+      this._effects.set(uniform, { start: performance.now(), duration, envelope, onMidpoint, resolve });
+      this.invalidate();
+    });
+  }
+
+  _updateEffects(now, rect) {
+    if (!this._effects.size) return;
+    const { gl, quad } = this;
+    quad.use();
+    gl.uniform1f(quad.uniform("uTime"), (now % 100000) / 1000);
+
+    for (const [uniform, effect] of this._effects) {
+      const t = Math.min((now - effect.start) / effect.duration, 1);
+      if (t >= 0.5 && effect.onMidpoint) {
+        const onMidpoint = effect.onMidpoint;
+        effect.onMidpoint = null;
+        onMidpoint();
+      }
+      gl.uniform1f(quad.uniform(uniform), t < 1 ? effect.envelope(t) : 0);
+      if (t >= 1) {
+        this._effects.delete(uniform);
+        effect.resolve();
+      }
+    }
+
+    if (this._effects.has("uGlitch")) {
+      const top = this._glitchRegion ? this._glitchRegion.getBoundingClientRect().top - rect.top : 0;
+      // source uv runs bottom-up (the texture is flipped on upload)
+      gl.uniform1f(quad.uniform("uGlitchTop"), 1 - Math.min(Math.max(top / this._height, 0), 1));
+    }
+  }
+
+  // Ends an effect right away (its swap still happens) - for a replaced
+  // effect, and when rendering stops, so nothing awaiting it hangs.
+  _finishEffect(uniform) {
+    const effect = this._effects.get(uniform);
+    if (!effect) return;
+    this._effects.delete(uniform);
+    effect.onMidpoint?.();
+    if (this.supported && this.gl && !this.gl.isContextLost()) {
+      this.quad.use();
+      this.gl.uniform1f(this.quad.uniform(uniform), 0);
+    }
+    effect.resolve();
+  }
+
+  _finishAllEffects() {
+    for (const uniform of [...this._effects.keys()]) this._finishEffect(uniform);
   }
 
   _onWindowResize() {
@@ -344,6 +453,7 @@ export class TextWarpLayer {
     // show the real DOM text right away, then try to come back on a fresh
     // context - giving up for good if the GPU keeps dropping it
     this.sourceEl.classList.remove(ACTIVE_CLASS);
+    this._finishAllEffects();
     this._clearHitOffsets();
 
     if (++this._contextRecoveries > MAX_CONTEXT_RECOVERIES) {
@@ -422,6 +532,8 @@ export class TextWarpLayer {
 
     const opacityCache = new Map();
     const underlinedThisFrame = new Set();
+    // the focused element's "white-hot" color - set per phosphor theme
+    const hot = getComputedStyle(this.sourceEl).getPropertyValue("--hot").trim() || "#ffffff";
 
     // Borders are normally drawn per leaf (below), but once scrambleReveal
     // has split an element's text into per-character spans that element
@@ -487,10 +599,10 @@ export class TextWarpLayer {
       if (!Number.isFinite(lineHeight)) lineHeight = fontSize * 1.2;
 
       ctx.font = `${style.fontWeight} ${fontSize}px ${style.fontFamily}`;
-      ctx.fillStyle = isFocused ? "#ffffff" : style.color;
+      ctx.fillStyle = isFocused ? hot : style.color;
       if ("letterSpacing" in ctx) ctx.letterSpacing = style.letterSpacing;
       if (isFocused) {
-        ctx.shadowColor = "rgba(242, 242, 242, 0.9)";
+        ctx.shadowColor = hot;
         ctx.shadowBlur = 6;
       }
 
@@ -522,7 +634,7 @@ export class TextWarpLayer {
         const aRect = interactiveAncestor.getBoundingClientRect();
         const aLeft = aRect.left - shiftX - originRect.left;
         const underlineY = aRect.top - shiftY - originRect.top + aRect.height + 2;
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = hot;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(aLeft, underlineY);
@@ -537,6 +649,7 @@ export class TextWarpLayer {
 
   stop() {
     this._running = false;
+    this._finishAllEffects();
     cancelAnimationFrame(this._rafId);
     this._rafId = 0;
     clearTimeout(this._resizeSettleTimer);

@@ -117,4 +117,11 @@ export const content = {
     },
     links: [{ label: "github.com/yoanmarchal", href: "https://github.com/yoanmarchal" }],
   },
+  // the prompt's shell (src/ui/shell.js): user@host, and the year `uptime`
+  // counts from
+  shell: {
+    user: "yoan",
+    host: "limoges",
+    since: 2009,
+  },
 };
