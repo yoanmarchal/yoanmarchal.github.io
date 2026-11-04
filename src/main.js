@@ -254,7 +254,7 @@ async function revealHero(inner, heroRefs) {
 }
 
 // Reveals `elements` one at a time (fade + slide up) rather than all at
-// once - shared by the nav tabs and the competences groups.
+// once - for the nav tabs during the boot.
 async function staggerFadeReveal(elements, { step = 80, waitFn = wait } = {}) {
   if (prefersReducedMotion() || elements.length === 0) return;
 
@@ -289,44 +289,6 @@ async function revealNavTabs(nav) {
   await staggerFadeReveal([...nav.querySelectorAll(".tab")], { waitFn: bootWait });
 }
 
-// Scrambles the COMPÉTENCES heading in, then fades the group labels and
-// stack tags in one at a time, in reading order.
-function revealCompetences(section, onComplete) {
-  if (prefersReducedMotion()) {
-    onComplete();
-    return () => {};
-  }
-
-  const heading = section.querySelector("h2");
-  const items = [...section.querySelectorAll(".stack-group h3, .stack-tag")];
-  let cancelled = false;
-  let cancelHeading = null;
-
-  // hidden immediately so items don't flash at full opacity while the
-  // heading is still scrambling in
-  items.forEach((item) => {
-    item.style.transition = "none";
-    item.style.opacity = "0";
-  });
-
-  (async () => {
-    if (heading) {
-      const { cancel, promise } = scrambleReveal(heading, heading.textContent);
-      cancelHeading = cancel;
-      await promise;
-      if (cancelled) return;
-    }
-    if (cancelled) return;
-    await staggerFadeReveal(items, { step: 40 });
-    if (!cancelled) onComplete();
-  })();
-
-  return () => {
-    cancelled = true;
-    if (cancelHeading) cancelHeading();
-  };
-}
-
 let cancelReveal = null;
 
 function renderPanel(route, panelsWrap, prompt) {
@@ -344,9 +306,8 @@ function renderPanel(route, panelsWrap, prompt) {
   const heading = section.querySelector("h2");
   if (heading) heading.focus();
 
-  const onComplete = () => prompt.show();
-  cancelReveal =
-    route === "competences" ? revealCompetences(section, onComplete) : animateReveal(section, { onComplete });
+  // every section prints the same way: its lines decrypt in, cascading
+  cancelReveal = animateReveal(section, { onComplete: () => prompt.show() });
 
   document.title = `${content.hero.name} — ${ROUTE_LABELS[route]}`;
 }
