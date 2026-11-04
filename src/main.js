@@ -13,6 +13,7 @@ import { animateReveal, scrambleReveal } from "./ui/scrambleReveal.js";
 import { createPrompt } from "./ui/Prompt.js";
 import { initTheme, onThemeChange } from "./ui/theme.js";
 import { createCrtPower } from "./ui/crtPower.js";
+import { createVectorLogo } from "./scene/vectorLogo.js";
 
 const SECTION_RENDERERS = {
   profil: renderProfil,
@@ -110,7 +111,19 @@ function buildShell() {
   const panelsWrap = document.createElement("div");
   panelsWrap.className = "panels";
 
-  crtScreen.append(crtOverlay, textWarpCanvas, crtFlicker, crtGlass, inner);
+  // a slow, faint brighter band rolling down the tube - the refresh beat
+  // between the tube and a camera filming it
+  const crtRoll = document.createElement("div");
+  crtRoll.className = "crt-roll";
+  crtRoll.setAttribute("aria-hidden", "true");
+
+  // the box the 3D vector logo is drawn into (by TextWarpLayer, through the
+  // CRT shader) - empty itself, sized and shown by CSS on wide screens
+  const vectorDisplay = document.createElement("div");
+  vectorDisplay.className = "vector-display";
+  vectorDisplay.setAttribute("aria-hidden", "true");
+
+  crtScreen.append(crtOverlay, textWarpCanvas, crtFlicker, crtRoll, crtGlass, vectorDisplay, inner);
   app.append(crtScreen);
 
   // adds .crt-warp-active to `inner` itself once WebGL is up (and removes
@@ -132,7 +145,30 @@ function buildShell() {
 
   const power = createCrtPower(crtScreen);
 
-  return { inner, panelsWrap, textWarp, power, crtFlicker };
+  textWarp.addLiveGraphic(vectorDisplay, createVectorLogo());
+  bindGlassParallax(crtScreen);
+
+  return { inner, panelsWrap, textWarp, power, crtFlicker, crtScreen };
+}
+
+// The glass reflection drifts a little against the pointer, as if the
+// viewer's head moved - only with a real hovering pointer, never under
+// reduced motion. Moves a composited layer (see .crt-glass::after).
+function bindGlassParallax(crtScreen) {
+  if (prefersReducedMotion() || !window.matchMedia("(hover: hover)").matches) return;
+  let frame = 0;
+  let x = 0;
+  let y = 0;
+  window.addEventListener("pointermove", (event) => {
+    x = (event.clientX / window.innerWidth) * 2 - 1;
+    y = (event.clientY / window.innerHeight) * 2 - 1;
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      crtScreen.style.setProperty("--glass-x", x.toFixed(3));
+      crtScreen.style.setProperty("--glass-y", y.toFixed(3));
+    });
+  });
 }
 
 // The boot types its first lines right away - waiting (briefly) for the
@@ -320,7 +356,7 @@ function showSkipHint(inner) {
   return hint;
 }
 
-async function boot(inner, panelsWrap, prompt) {
+async function boot(inner, panelsWrap, prompt, onHeroSettled) {
   const onInput = (event) => {
     // modifier-only presses (e.g. alt-tabbing away) aren't a skip request
     if (event.type === "keydown" && ["Alt", "Control", "Meta", "Shift"].includes(event.key)) return;
@@ -335,6 +371,9 @@ async function boot(inner, panelsWrap, prompt) {
 
     const heroRefs = buildHero();
     await revealHero(inner, heroRefs);
+    // the hero is in its corner: the screen can take its final layout
+    // (and show the 3D logo) before the nav and section come in
+    onHeroSettled();
 
     hint?.remove();
 
@@ -368,7 +407,7 @@ function bindShortcuts() {
 async function init() {
   // before the shell is built, so the stored theme is the first one painted
   initTheme();
-  const { inner, panelsWrap, textWarp, power, crtFlicker } = buildShell();
+  const { inner, panelsWrap, textWarp, power, crtFlicker, crtScreen } = buildShell();
   // the tube switches on (dot → line → picture) before anything is typed;
   // started in the same task as the shell is built, so the screen's first
   // paint is already "off"
@@ -377,7 +416,11 @@ async function init() {
 
   await Promise.all([waitForFont(), poweredOn]);
 
-  let { nav, currentRoute } = await boot(inner, panelsWrap, prompt);
+  let { nav, currentRoute } = await boot(inner, panelsWrap, prompt, () => {
+    crtScreen.classList.add("is-booted");
+    // a class outside the mirrored element: tell the layer to look again
+    textWarp.invalidate();
+  });
 
   // Route changes are serialized: a click landing mid-transition is queued
   // (only the latest one is kept) instead of starting a second, overlapping

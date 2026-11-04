@@ -51,18 +51,19 @@ vec4 tint(vec4 c) {
   return vec4(mix(c.rgb, luma * uPhosphor, neutral), c.a);
 }
 
-/* single-pass glow approximation: two rings of taps around the pixel (the
-   outer ring rotated half a step to fill the gaps of the inner one) */
+/* single-pass glow approximation: 8 taps around the pixel, alternating
+   between a near and a far radius (a star of two rings for half the reads
+   of two full ones) */
 vec4 bloom(vec2 uv) {
   vec2 px = 1.0 / uResolution;
   vec4 sum = vec4(0.0);
   for (int i = 0; i < 8; i++) {
     float angle = float(i) * PI * 0.25;
-    sum += texture2D(uTexture, uv + vec2(cos(angle), sin(angle)) * px * 2.5);
-    angle += PI * 0.125;
-    sum += texture2D(uTexture, uv + vec2(cos(angle), sin(angle)) * px * 6.0) * 0.6;
+    float far = mod(float(i), 2.0);
+    float reach = mix(2.5, 6.0, far);
+    sum += texture2D(uTexture, uv + vec2(cos(angle), sin(angle)) * px * reach) * mix(1.0, 0.6, far);
   }
-  return sum / (8.0 * 1.6);
+  return sum / (4.0 * 1.6);
 }
 
 void main() {

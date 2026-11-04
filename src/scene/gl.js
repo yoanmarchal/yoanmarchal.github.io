@@ -1,8 +1,11 @@
-// Minimal raw-WebGL helpers for the two full-screen shader quads - all
-// either layer needs is one program, one clip-space quad and a handful of
-// uniforms, which doesn't justify shipping a whole 3D engine.
+// Minimal raw-WebGL helpers for TextWarpLayer's full-screen shader passes -
+// a few programs over one clip-space quad, a couple of render targets and a
+// handful of uniforms, which doesn't justify shipping a whole 3D engine.
 
-export const MAX_PIXEL_RATIO = 2;
+// The CRT shader runs a dozen texture reads per pixel, and the tube's own
+// blur and scanlines hide the difference past ~1.5x - a 2x (or 3x) screen
+// would cost twice the fill rate for nothing visible.
+export const MAX_PIXEL_RATIO = 1.5;
 
 export function getWebGLContext(canvas) {
   try {
@@ -12,6 +15,10 @@ export function getWebGLContext(canvas) {
       depth: false,
       stencil: false,
       premultipliedAlpha: true,
+      // kept between frames, so a frame where only a small region changes
+      // (an animated graphic) can redraw just that region (see scissor in
+      // TextWarpLayer._composite)
+      preserveDrawingBuffer: true,
     });
   } catch {
     return null;
@@ -67,6 +74,34 @@ export function createQuadProgram(gl, vertexSource, fragmentSource) {
       gl.enableVertexAttribArray(positionLocation);
       gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    },
+  };
+}
+
+/**
+ * An offscreen color target (texture + framebuffer) for multi-pass effects.
+ * `resize` reallocates it, zero-filled (WebGL guarantees new textures start
+ * cleared).
+ */
+export function createRenderTarget(gl) {
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+  const framebuffer = gl.createFramebuffer();
+
+  return {
+    texture,
+    framebuffer,
+    resize(width, height) {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
   };
 }

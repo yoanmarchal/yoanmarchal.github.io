@@ -1,6 +1,7 @@
 import vertexShader from "../shaders/quad.vert.glsl";
 import fragmentShader from "../shaders/textWarp.frag.glsl";
-import { MAX_PIXEL_RATIO, createQuadProgram, getWebGLContext, loseContext, sizeCanvas } from "./gl.js";
+import persistShader from "../shaders/persist.frag.glsl";
+import { MAX_PIXEL_RATIO, createQuadProgram, createRenderTarget, getWebGLContext, loseContext, sizeCanvas } from "./gl.js";
 
 const STRENGTH = 0.12;
 
@@ -18,11 +19,39 @@ const ACTIVE_CLASS = "crt-warp-active";
 // net for a layout change that lands a frame after the mutation causing it.
 const RENDER_TAIL_MS = 50;
 
+// Phosphor persistence: the glow a pixel leaves fades with this time
+// constant once the beam stops lighting it - and the loop keeps drawing
+// (shader passes only, no DOM re-measuring) until it's gone.
+const PERSIST_TAU_MS = 70;
+const PERSIST_TAIL_MS = 260;
+
+// After a change, the DOM is re-measured and re-uploaded for this many
+// frames (the change itself, plus one for a layout landing a frame late) -
+// the rest of the tail only runs the shader passes.
+const MIRROR_FRAMES = 2;
+
+// Live graphics (see addLiveGraphic) animate at this rate - a full frame
+// runs every CRT pass, so there's no need for the display's 60-120Hz.
+const GRAPHIC_FRAME_MS = 33;
+
+// While the content scrolls, persistence is off: every line moving at once
+// would smear into the next one and the text would blur. Back on this long
+// after the last scroll event.
+const SCROLL_SETTLE_MS = 150;
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 // A transition whose end event never arrives (e.g. its element was removed
 // mid-flight) must not keep the render loop alive forever.
 const TRANSITION_TIMEOUT_MS = 3000;
 
 const MAX_CONTEXT_RECOVERIES = 3;
+
+// Hit-box offsets that move by less than this (CSS px) aren't rewritten -
+// see _alignHitBoxes.
+const HIT_OFFSET_EPSILON = 0.25;
 
 // Section change: the panel loses sync, then the new one prints in
 const GLITCH_MS = 340;
@@ -151,6 +180,17 @@ export class TextWarpLayer {
     this._effects = new Map();
     this._glitchRegion = null;
     this._renderUntil = 0;
+    this._mirrorFrames = 0;
+    // until then every frame redraws the whole screen (persistence fading
+    // after a change); past it, a frame that only animates a live graphic
+    // redraws just that graphic's region
+    this._fullUntil = 0;
+    this._forceMirror = true;
+    this._lastRenderAt = 0;
+    this._lastCompositeAt = 0;
+    // animated drawings mixed into the picture (addLiveGraphic)
+    this._graphics = [];
+    this._graphicsActive = false;
     this._rafId = 0;
     this._contextRecoveries = 0;
 
@@ -159,6 +199,8 @@ export class TextWarpLayer {
     this._onTransitionRun = this._onTransitionRun.bind(this);
     this._onTransitionStop = this._onTransitionStop.bind(this);
     this._onWindowResize = this._onWindowResize.bind(this);
+    this._onScroll = this._onScroll.bind(this);
+    this._scrollUntil = 0;
 
     if (!this._setupGL()) return;
 
@@ -178,6 +220,17 @@ export class TextWarpLayer {
       quad = createQuadProgram(gl, vertexShader, fragmentShader);
     } catch {
       return false;
+    }
+
+    // trails (persistence) are motion - skipped under reduced motion,
+    // which then draws straight to the screen as before
+    let persist = null;
+    if (!prefersReducedMotion()) {
+      try {
+        persist = createQuadProgram(gl, vertexShader, persistShader);
+      } catch {
+        persist = null;
+      }
     }
 
     const texture = gl.createTexture();
@@ -212,10 +265,20 @@ export class TextWarpLayer {
     this.gl = gl;
     this.quad = quad;
     this.texture = texture;
+    this.persist = persist;
+    // the CRT pass renders here, then two history buffers ping-pong the
+    // persistence (one is last frame's glow, the other receives this one's)
+    this._targets = persist
+      ? { crt: createRenderTarget(gl), history: [createRenderTarget(gl), createRenderTarget(gl)] }
+      : null;
+    this._historyIndex = 0;
+    this._forceMirror = true;
 
     if (this._width && this._height) {
       sizeCanvas(this.canvas, this._width, this._height);
+      quad.use();
       gl.uniform2f(quad.uniform("uResolution"), this._width, this._height);
+      this._sizeTargets();
     }
     return true;
   }
@@ -234,7 +297,7 @@ export class TextWarpLayer {
     this._resizeObserver = new ResizeObserver(this.invalidate);
     this._resizeObserver.observe(el);
 
-    el.addEventListener("scroll", this.invalidate, { capture: true, passive: true });
+    el.addEventListener("scroll", this._onScroll, { capture: true, passive: true });
     el.addEventListener("focusin", this.invalidate);
     el.addEventListener("focusout", this.invalidate);
     // `load` doesn't bubble - capture catches <img> loads inside
@@ -253,6 +316,11 @@ export class TextWarpLayer {
     window.addEventListener("resize", this._onWindowResize);
   }
 
+  _onScroll() {
+    this._scrollUntil = performance.now() + SCROLL_SETTLE_MS;
+    this.invalidate();
+  }
+
   _onTransitionRun(event) {
     this._runningTransitions.set(event.target, performance.now());
     this.invalidate();
@@ -265,7 +333,11 @@ export class TextWarpLayer {
 
   invalidate() {
     if (!this._running) return;
-    this._renderUntil = performance.now() + RENDER_TAIL_MS;
+    const now = performance.now();
+    this._mirrorFrames = MIRROR_FRAMES;
+    const tail = now + (this.persist ? PERSIST_TAIL_MS : RENDER_TAIL_MS);
+    this._renderUntil = Math.max(this._renderUntil, tail);
+    this._fullUntil = Math.max(this._fullUntil, tail);
     if (!this._rafId) this._rafId = requestAnimationFrame(this._tick);
   }
 
@@ -278,18 +350,23 @@ export class TextWarpLayer {
     return this._runningTransitions.size > 0;
   }
 
-  _tick(now) {
+  _tick() {
     this._rafId = 0;
     if (!this._running) return;
 
-    this._render();
-
-    if (now < this._renderUntil || this._hasRunningTransitions(now) || this._effects.size) {
-      this._rafId = requestAnimationFrame(this._tick);
+    const now = performance.now();
+    const busy = now < this._renderUntil || this._hasRunningTransitions(now) || this._effects.size > 0;
+    const animating = this._graphicsActive && !prefersReducedMotion();
+    // a live graphic alone only needs its own (lower) frame rate
+    if (busy || !animating || now - this._lastRenderAt >= GRAPHIC_FRAME_MS) {
+      this._lastRenderAt = now;
+      this._render(now);
     }
+
+    if (busy || animating) this._rafId = requestAnimationFrame(this._tick);
   }
 
-  _render() {
+  _render(now = performance.now()) {
     const { gl } = this;
     if (gl.isContextLost()) return;
 
@@ -300,16 +377,195 @@ export class TextWarpLayer {
 
     // before the mirror is drawn: a glitch's midpoint swaps the DOM, which
     // this same frame then shows (dimmed, at the glitch's peak)
-    this._updateEffects(performance.now(), rect);
+    this._updateEffects(now, rect);
 
-    this._drawMirror(rect);
+    const graphics = this._measureGraphics(rect);
 
+    // The DOM is only re-measured and re-uploaded when something may have
+    // changed it - frames that only animate a live graphic or fade the
+    // persistence reuse the texture as it is.
+    const needMirror =
+      this._forceMirror ||
+      graphics.someHidden ||
+      this._mirrorFrames > 0 ||
+      this._runningTransitions.size > 0 ||
+      this._effects.size > 0;
+
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.mirror);
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    if (needMirror) {
+      this._forceMirror = false;
+      this._mirrorFrames = Math.max(this._mirrorFrames - 1, 0);
+      this._drawMirror(rect);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.mirror);
+    }
+    this._drawGraphics(graphics.visible, now);
+
+    // nothing but the live graphics changing: only their region (plus a
+    // margin for the warp's displacement and the glow) needs the CRT passes
+    const partial = !needMirror && now >= this._fullUntil && graphics.visible.length > 0;
+    this._composite(now, partial ? this._graphicsRegion(graphics.visible) : null);
+  }
+
+  // the visible graphics' bounding box in GL framebuffer pixels (origin
+  // bottom-left), widened by the most the warp can shift a pixel (~3% of the
+  // screen at the corners) and the glow's reach
+  _graphicsRegion(visible) {
+    const dpr = this.canvas.width / this._width;
+    const margin = Math.max(this.canvas.width, this.canvas.height) * 0.04 + 12 * dpr;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (const box of visible) {
+      left = Math.min(left, box.left);
+      top = Math.min(top, box.top);
+      right = Math.max(right, box.left + box.width);
+      bottom = Math.max(bottom, box.top + box.height);
+    }
+    const x0 = Math.max(Math.floor(left * dpr - margin), 0);
+    const x1 = Math.min(Math.ceil(right * dpr + margin), this.canvas.width);
+    const y0 = Math.max(Math.floor(top * dpr - margin), 0);
+    const y1 = Math.min(Math.ceil(bottom * dpr + margin), this.canvas.height);
+    return { x: x0, y: this.canvas.height - y1, width: x1 - x0, height: y1 - y0 };
+  }
+
+  // CRT pass, then (with persistence) blend it over what's left of the
+  // previous frame's glow and put that on screen.
+  // `region` (GL pixels) limits every pass to that box - the rest of the
+  // screen, and of the persistence buffers, keeps what it had.
+  _composite(now, region = null) {
+    const { gl, quad, persist, canvas } = this;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    if (region) {
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(region.x, region.y, region.width, region.height);
+    }
+    try {
+      this._compositePasses(now, w, h);
+    } finally {
+      if (region) gl.disable(gl.SCISSOR_TEST);
+    }
+  }
+
+  _compositePasses(now, w, h) {
+    const { gl, quad, persist } = this;
+
+    if (!persist || !this._targets) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, w, h);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      quad.draw();
+      return;
+    }
+
+    const dt = now - this._lastCompositeAt;
+    this._lastCompositeAt = now;
+    const decay = dt >= 0 && dt < 1000 && now >= this._scrollUntil ? Math.exp(-dt / PERSIST_TAU_MS) : 0;
+
+    const { crt, history } = this._targets;
+    const previous = history[this._historyIndex];
+    const next = history[1 - this._historyIndex];
+
+    gl.viewport(0, 0, w, h);
     gl.clearColor(0, 0, 0, 0);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, crt.framebuffer);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    this.quad.draw();
+    quad.draw();
+
+    persist.use();
+    gl.uniform1i(persist.uniform("uCurrent"), 1);
+    gl.uniform1i(persist.uniform("uPrevious"), 2);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, crt.texture);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, previous.texture);
+    gl.uniform1f(persist.uniform("uDecay"), decay);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, next.framebuffer);
+    persist.draw();
+
+    // copy to the screen: the same program with nothing carried over
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, next.texture);
+    gl.uniform1i(persist.uniform("uPrevious"), 1);
+    gl.uniform1f(persist.uniform("uDecay"), 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    persist.draw();
+
+    this._historyIndex = 1 - this._historyIndex;
+    gl.activeTexture(gl.TEXTURE0);
+    quad.use();
+  }
+
+  _sizeTargets() {
+    if (!this._targets) return;
+    const { width, height } = this.canvas;
+    this._targets.crt.resize(width, height);
+    this._targets.history.forEach((target) => target.resize(width, height));
+  }
+
+  /**
+   * Mixes an animated drawing into the picture, so it gets the same
+   * curvature, tint, glow and persistence as the text: `draw(ctx, width,
+   * height, seconds)` paints it (in CSS px, on a cleared canvas) over `el`'s
+   * box - which can sit anywhere over the screen, in or out of the source
+   * element. Hidden boxes (display: none) are skipped; under reduced motion
+   * it's drawn once per redraw, at `seconds` = 0.
+   */
+  addLiveGraphic(el, draw) {
+    const canvas = document.createElement("canvas");
+    this._graphics.push({ el, draw, canvas, ctx: canvas.getContext("2d"), visible: false });
+    this.invalidate();
+  }
+
+  _measureGraphics(originRect) {
+    const visible = [];
+    let someHidden = false;
+    for (const graphic of this._graphics) {
+      const r = graphic.el.getBoundingClientRect();
+      const shown = r.width >= 2 && r.height >= 2;
+      if (shown) {
+        visible.push({ graphic, left: r.left - originRect.left, top: r.top - originRect.top, width: r.width, height: r.height });
+      } else if (graphic.visible) {
+        // its last frame is still in the texture: a fresh mirror clears it
+        someHidden = true;
+      }
+      graphic.visible = shown;
+    }
+    this._graphicsActive = visible.length > 0;
+    return { visible, someHidden };
+  }
+
+  _drawGraphics(visible, now) {
+    if (!visible.length) return;
+    const { gl } = this;
+    const dpr = this.mirror.width / this._width;
+    const seconds = prefersReducedMotion() ? 0 : now / 1000;
+
+    for (const { graphic, left, top, width, height } of visible) {
+      const x = Math.round(left * dpr);
+      const y = Math.round(top * dpr);
+      const w = Math.round(width * dpr);
+      const h = Math.round(height * dpr);
+      // texSubImage2D rejects anything reaching outside the texture
+      if (x < 0 || y < 0 || x + w > this.mirror.width || y + h > this.mirror.height) continue;
+
+      const { canvas, ctx } = graphic;
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      graphic.draw(ctx, width, height, seconds);
+
+      // the texture is uploaded flipped (rows bottom-up), so the box's
+      // offset is counted from the bottom
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, x, this.mirror.height - (y + h), gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+    }
   }
 
   _resize(width, height) {
@@ -322,6 +578,8 @@ export class TextWarpLayer {
     this._height = height;
     this.quad.use();
     this.gl.uniform2f(this.quad.uniform("uResolution"), width, height);
+    this._sizeTargets();
+    this._forceMirror = true;
   }
 
   // Called by initResponsiveCurvature and the dev curvature tuner (see
@@ -502,12 +760,24 @@ export class TextWarpLayer {
       const centerX = trueLeft - originRect.left + iRect.width / 2;
       const centerY = trueTop - originRect.top + iRect.height / 2;
       const shaderOffset = computeWarpOffsetPx(centerX, centerY, this._width, this._height, this._strength);
-      updates.push([interactiveEl, { dx: -shaderOffset.dx, dy: -shaderOffset.dy }]);
+      // Kept to sub-pixel noise: the "true" position above is recovered
+      // from a box that already carries the previous transform (as the
+      // browser applied and snapped it), so the result wobbles by tiny
+      // amounts from frame to frame. Rewriting the transform for those
+      // would be a style mutation, which invalidates this layer, which
+      // re-runs this - a redraw loop that never settles.
+      if (prevOffset && Math.abs(-shaderOffset.dx - prevOffset.dx) < HIT_OFFSET_EPSILON && Math.abs(-shaderOffset.dy - prevOffset.dy) < HIT_OFFSET_EPSILON) {
+        continue;
+      }
+      // stored exactly as applied, so the next frame subtracts what's
+      // really on the element
+      const round = (value) => Math.round(value * 100) / 100;
+      updates.push([interactiveEl, { dx: round(-shaderOffset.dx), dy: round(-shaderOffset.dy) }]);
     }
 
     for (const [el, offset] of updates) {
       this._hitOffsets.set(el, offset);
-      const transform = `translate(${offset.dx.toFixed(2)}px, ${offset.dy.toFixed(2)}px)`;
+      const transform = `translate(${offset.dx}px, ${offset.dy}px)`;
       if (el.style.transform !== transform) el.style.transform = transform;
     }
   }
@@ -657,7 +927,7 @@ export class TextWarpLayer {
     this._resizeObserver?.disconnect();
 
     const el = this.sourceEl;
-    el.removeEventListener("scroll", this.invalidate, { capture: true });
+    el.removeEventListener("scroll", this._onScroll, { capture: true });
     el.removeEventListener("focusin", this.invalidate);
     el.removeEventListener("focusout", this.invalidate);
     el.removeEventListener("load", this.invalidate, true);
