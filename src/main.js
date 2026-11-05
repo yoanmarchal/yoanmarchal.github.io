@@ -7,11 +7,13 @@ import { renderExperience } from "./ui/sections/Experience.js";
 import { renderProjets } from "./ui/sections/Projets.js";
 import { renderContact } from "./ui/sections/Contact.js";
 import { ROUTES, ROUTE_LABELS, getCurrentRoute, navigateTo, onRouteChange } from "./router.js";
-import { SectionTransition } from "./scene/SectionTransition.js";
 import { TextWarpLayer } from "./scene/TextWarpLayer.js";
 import { initResponsiveCurvature } from "./scene/curvature.js";
 import { animateReveal, scrambleReveal } from "./ui/scrambleReveal.js";
 import { createPrompt } from "./ui/Prompt.js";
+import { initTheme, onThemeChange } from "./ui/theme.js";
+import { createCrtPower } from "./ui/crtPower.js";
+import { createVectorLogo } from "./scene/vectorLogo.js";
 
 const SECTION_RENDERERS = {
   profil: renderProfil,
@@ -99,10 +101,6 @@ function buildShell() {
   crtGlass.className = "crt-glass";
   crtGlass.setAttribute("aria-hidden", "true");
 
-  const transitionCanvas = document.createElement("canvas");
-  transitionCanvas.className = "transition-canvas";
-  transitionCanvas.setAttribute("aria-hidden", "true");
-
   const textWarpCanvas = document.createElement("canvas");
   textWarpCanvas.className = "text-warp-canvas";
   textWarpCanvas.setAttribute("aria-hidden", "true");
@@ -113,19 +111,73 @@ function buildShell() {
   const panelsWrap = document.createElement("div");
   panelsWrap.className = "panels";
 
-  crtScreen.append(crtOverlay, transitionCanvas, textWarpCanvas, crtFlicker, crtGlass, inner);
+  // a slow, faint brighter band rolling down the tube - the refresh beat
+  // between the tube and a camera filming it
+  const crtRoll = document.createElement("div");
+  crtRoll.className = "crt-roll";
+  crtRoll.setAttribute("aria-hidden", "true");
+
+  // the box the 3D vector logo is drawn into (by TextWarpLayer, through the
+  // CRT shader) - empty itself, sized and shown by CSS on wide screens
+  const vectorDisplay = document.createElement("div");
+  vectorDisplay.className = "vector-display";
+  vectorDisplay.setAttribute("aria-hidden", "true");
+
+  crtScreen.append(crtOverlay, textWarpCanvas, crtFlicker, crtRoll, crtGlass, vectorDisplay, inner);
   app.append(crtScreen);
 
   // adds .crt-warp-active to `inner` itself once WebGL is up (and removes
   // it again if the context is ever lost)
   const textWarp = new TextWarpLayer(textWarpCanvas, inner);
   initResponsiveCurvature(textWarp);
+  // a theme change degausses the tube (not the initial theme, applied
+  // before anything is on screen)
+  let initialTheme = true;
+  onThemeChange(({ phosphor }) => {
+    textWarp.setPhosphor(phosphor);
+    if (!initialTheme && !prefersReducedMotion()) textWarp.playDegauss();
+    initialTheme = false;
+  });
 
   if (import.meta.env.DEV) {
     import("./dev/curvatureTuner.js").then(({ initCurvatureTuner }) => initCurvatureTuner(textWarp));
   }
 
-  return { inner, panelsWrap, transitionCanvas };
+  const power = createCrtPower(crtScreen);
+
+  textWarp.addLiveGraphic(vectorDisplay, createVectorLogo());
+  bindGlassParallax(crtScreen);
+
+  return { inner, panelsWrap, textWarp, power, crtFlicker, crtScreen };
+}
+
+// The glass reflection drifts a little against the pointer, as if the
+// viewer's head moved - only with a real hovering pointer, never under
+// reduced motion. Moves a composited layer (see .crt-glass::after).
+function bindGlassParallax(crtScreen) {
+  if (prefersReducedMotion() || !window.matchMedia("(hover: hover)").matches) return;
+  let frame = 0;
+  let x = 0;
+  let y = 0;
+  window.addEventListener("pointermove", (event) => {
+    x = (event.clientX / window.innerWidth) * 2 - 1;
+    y = (event.clientY / window.innerHeight) * 2 - 1;
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      crtScreen.style.setProperty("--glass-x", x.toFixed(3));
+      crtScreen.style.setProperty("--glass-y", y.toFixed(3));
+    });
+  });
+}
+
+// The boot types its first lines right away - waiting (briefly) for the
+// bitmap font keeps them from re-flowing in a fallback font mid-sequence.
+const FONT_WAIT_MS = 1500;
+
+function waitForFont() {
+  if (!document.fonts?.load) return Promise.resolve();
+  return Promise.race([document.fonts.load('1rem "Departure Mono"').catch(() => {}), wait(FONT_WAIT_MS)]);
 }
 
 function buildHero() {
@@ -238,7 +290,7 @@ async function revealHero(inner, heroRefs) {
 }
 
 // Reveals `elements` one at a time (fade + slide up) rather than all at
-// once - shared by the nav tabs and the competences groups.
+// once - for the nav tabs during the boot.
 async function staggerFadeReveal(elements, { step = 80, waitFn = wait } = {}) {
   if (prefersReducedMotion() || elements.length === 0) return;
 
@@ -273,44 +325,6 @@ async function revealNavTabs(nav) {
   await staggerFadeReveal([...nav.querySelectorAll(".tab")], { waitFn: bootWait });
 }
 
-// Scrambles the COMPÉTENCES heading in, then fades the group labels and
-// stack tags in one at a time, in reading order.
-function revealCompetences(section, onComplete) {
-  if (prefersReducedMotion()) {
-    onComplete();
-    return () => {};
-  }
-
-  const heading = section.querySelector("h2");
-  const items = [...section.querySelectorAll(".stack-group h3, .stack-tag")];
-  let cancelled = false;
-  let cancelHeading = null;
-
-  // hidden immediately so items don't flash at full opacity while the
-  // heading is still scrambling in
-  items.forEach((item) => {
-    item.style.transition = "none";
-    item.style.opacity = "0";
-  });
-
-  (async () => {
-    if (heading) {
-      const { cancel, promise } = scrambleReveal(heading, heading.textContent);
-      cancelHeading = cancel;
-      await promise;
-      if (cancelled) return;
-    }
-    if (cancelled) return;
-    await staggerFadeReveal(items, { step: 40 });
-    if (!cancelled) onComplete();
-  })();
-
-  return () => {
-    cancelled = true;
-    if (cancelHeading) cancelHeading();
-  };
-}
-
 let cancelReveal = null;
 
 function renderPanel(route, panelsWrap, prompt) {
@@ -323,12 +337,13 @@ function renderPanel(route, panelsWrap, prompt) {
   prompt.hide();
   panelsWrap.replaceChildren(section, prompt.element);
 
-  const onComplete = () => prompt.show();
-  cancelReveal =
-    route === "competences" ? revealCompetences(section, onComplete) : animateReveal(section, { onComplete });
-
+  // before the reveal starts: under reduced motion it completes (and the
+  // prompt, if it was in use, takes focus back) synchronously
   const heading = section.querySelector("h2");
   if (heading) heading.focus();
+
+  // every section prints the same way: its lines decrypt in, cascading
+  cancelReveal = animateReveal(section, { onComplete: () => prompt.show() });
 
   document.title = `${content.hero.name} — ${ROUTE_LABELS[route]}`;
 }
@@ -341,7 +356,7 @@ function showSkipHint(inner) {
   return hint;
 }
 
-async function boot(inner, panelsWrap, prompt) {
+async function boot(inner, panelsWrap, prompt, onHeroSettled) {
   const onInput = (event) => {
     // modifier-only presses (e.g. alt-tabbing away) aren't a skip request
     if (event.type === "keydown" && ["Alt", "Control", "Meta", "Shift"].includes(event.key)) return;
@@ -356,6 +371,9 @@ async function boot(inner, panelsWrap, prompt) {
 
     const heroRefs = buildHero();
     await revealHero(inner, heroRefs);
+    // the hero is in its corner: the screen can take its final layout
+    // (and show the 3D logo) before the nav and section come in
+    onHeroSettled();
 
     hint?.remove();
 
@@ -387,11 +405,22 @@ function bindShortcuts() {
 }
 
 async function init() {
-  const { inner, panelsWrap, transitionCanvas } = buildShell();
-  const transition = new SectionTransition(transitionCanvas);
-  const prompt = createPrompt();
+  // before the shell is built, so the stored theme is the first one painted
+  initTheme();
+  const { inner, panelsWrap, textWarp, power, crtFlicker, crtScreen } = buildShell();
+  // the tube switches on (dot → line → picture) before anything is typed;
+  // started in the same task as the shell is built, so the screen's first
+  // paint is already "off"
+  const poweredOn = power.start().then(() => crtFlicker.classList.add("is-starting"));
+  const prompt = createPrompt({ powerOff: power.powerOff });
 
-  let { nav, currentRoute } = await boot(inner, panelsWrap, prompt);
+  await Promise.all([waitForFont(), poweredOn]);
+
+  let { nav, currentRoute } = await boot(inner, panelsWrap, prompt, () => {
+    crtScreen.classList.add("is-booted");
+    // a class outside the mirrored element: tell the layer to look again
+    textWarp.invalidate();
+  });
 
   // Route changes are serialized: a click landing mid-transition is queued
   // (only the latest one is kept) instead of starting a second, overlapping
@@ -413,7 +442,9 @@ async function init() {
       if (prefersReducedMotion()) {
         renderPanel(next, panelsWrap, prompt);
       } else {
-        await transition.play(() => renderPanel(next, panelsWrap, prompt));
+        // the section loses sync and goes dark; the new one is swapped in
+        // at the darkest moment, then prints itself in
+        await textWarp.playGlitch(() => renderPanel(next, panelsWrap, prompt), panelsWrap);
       }
     }
 

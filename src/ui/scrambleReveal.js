@@ -34,7 +34,8 @@ export function createScreenReaderText(text) {
  *
  * Returns { cancel, finish, promise } - promise resolves once every
  * character has settled (or finish() jumped straight to the end), so
- * callers can chain lines sequentially.
+ * callers can chain lines sequentially. By then `el` holds plain text
+ * again: the per-character boxes only exist while it animates.
  */
 export function scrambleReveal(el, text, options = {}) {
   const chars = [...text];
@@ -65,6 +66,11 @@ export function scrambleReveal(el, text, options = {}) {
   // real (breakable) spaces, keeps wrapping at word boundaries.
   const wrapper = document.createElement("span");
   wrapper.setAttribute("aria-hidden", "true");
+  // fixed-width character boxes swallow letter-spacing - handed back to
+  // them as a margin (see .scramble-char) so the line is as wide as the
+  // plain text it settles into
+  const letterSpacing = getComputedStyle(el).letterSpacing;
+  wrapper.style.setProperty("--scramble-ls", letterSpacing === "normal" ? "0px" : letterSpacing);
   let word = null;
   spans.forEach((span) => {
     if (!span) {
@@ -88,6 +94,19 @@ export function scrambleReveal(el, text, options = {}) {
   const promise = new Promise((resolve) => {
     resolveDone = resolve;
   });
+
+  // Once settled, the per-character boxes are swapped back for the plain
+  // text (which screen readers then read directly, replacing the hidden
+  // copy). Left in place, every character of every revealed line would
+  // stay its own element - thousands on a long section - and
+  // TextWarpLayer re-measures each of them on every redraw.
+  let settled = false;
+  function settle() {
+    if (settled) return;
+    settled = true;
+    el.replaceChildren(document.createTextNode(text));
+    resolveDone();
+  }
 
   function frame(now) {
     const elapsed = now - start;
@@ -115,7 +134,7 @@ export function scrambleReveal(el, text, options = {}) {
     if (!allDone) {
       rafId = requestAnimationFrame(frame);
     } else {
-      resolveDone();
+      settle();
     }
   }
 
@@ -123,12 +142,7 @@ export function scrambleReveal(el, text, options = {}) {
 
   function finish() {
     cancelAnimationFrame(rafId);
-    chars.forEach((ch, i) => {
-      if (ch === " ") return;
-      spans[i].textContent = ch;
-      spans[i].classList.remove("is-scrambling");
-    });
-    resolveDone();
+    settle();
   }
 
   return { cancel: () => cancelAnimationFrame(rafId), finish, promise };
